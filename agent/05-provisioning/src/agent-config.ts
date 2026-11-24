@@ -27,7 +27,7 @@ export interface AgentConfigOptions {
 
 /** Female, multilingual premade voice that handles English and Arabic on the flash multilingual model. */
 export const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'
-export const DEFAULT_LLM: ElevenLabs.Llm = 'gemini-3.8-flash'
+export const DEFAULT_LLM: ElevenLabs.Llm = 'gemini-3.5-flash' // measured: about 1.2 s to first word vs 1.4-4 s for gemini-3.8-flash, and it keeps the caller's language
 /**
  * Arabic is the base language on purpose. ElevenLabs forces an English-primary agent onto the
  * English-only TTS model, which garbles Arabic (kit gotcha G1). With Arabic as the base the

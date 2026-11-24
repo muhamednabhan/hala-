@@ -54,13 +54,13 @@ async function probe(agentId: string, text: string): Promise<Timing> {
     ws.onopen = () => ws.send(JSON.stringify({ type: 'conversation_initiation_client_data', conversation_config_override: { conversation: { text_only: true } } }))
     ws.onmessage = (m) => {
       const ev = JSON.parse(String(m.data)) as Record<string, any>
-      lastEvent = Date.now()
       if (ev.type === 'ping') { ws.send(JSON.stringify({ type: 'pong', event_id: ev.ping_event.event_id })); return }
+      lastEvent = Date.now() // pings do not count: they would keep a finished answer looking busy
       if (phase === 'opening' && ev.type === 'agent_response') {
         phase = 'waiting'; sentAt = Date.now()
         ws.send(JSON.stringify({ type: 'user_message', text }))
         // the answer is complete when the agent has been quiet for a moment after speaking
-        const poll = setInterval(() => { if (out.text && Date.now() - lastEvent > 1800 && !toolStart.size) { clearInterval(poll); out.totalMs = lastEvent - sentAt; phase = 'done'; finish() } }, 200)
+        const poll = setInterval(() => { if (out.text && Date.now() - lastEvent > 1500 && !toolStart.size) { clearInterval(poll); out.totalMs = lastEvent - sentAt; phase = 'done'; finish() } }, 200)
         return
       }
       if (phase !== 'waiting') return
@@ -91,6 +91,7 @@ try {
       try {
         const t = await probe(agentId, PROBES[p]!)
         ;(summary[llm] ??= []).push(t.firstMs ?? NaN)
+        console.log(`${llm} ${p}: first ${t.firstMs ?? '-'} ms, tools ${t.tools.join(',') || '-'} ${t.toolMs!.join('/')} ms`)
         table.push(`| ${llm} | ${p} | ${t.firstMs ?? '-'} ms | ${t.totalMs ?? '-'} ms | ${t.tools.map((n, i) => `${n} ${t.toolMs![i] ?? '?'}`).join(', ') || '-'} | ${t.text.trim().slice(0, 70).replace(/\|/g, '/')} |`)
       } catch (e) { table.push(`| ${llm} | ${p} | error ${(e as Error).message} | | | |`) }
     }
