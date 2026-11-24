@@ -58,7 +58,28 @@ interface TRequest {
   language: 'en' | 'ar';
   conversationId?: string;
   createdAt: string;
+  /** Added by migration 002. Missing before it is run. */
+  status?: 'open' | 'in_progress' | 'done';
+  resolution?: string | null;
 }
+/** hala_knowledge_answers (migration 002): admin answers for questions HALA could not answer. */
+interface TAnswer {
+  id: string;
+  question: string;
+  question_norm: string;
+  service_id: string | null;
+  answer_en: string | null;
+  answer_ar: string | null;
+  status: 'waiting' | 'answered' | 'out_of_scope';
+  answered_by: string | null;
+  answered_at: string | null;
+  times_used: number;
+  created_at: string;
+  updated_at: string;
+}
+export const normQuestion = (q: string) => q.trim().toLowerCase().replace(/\s+/g, ' ');
+export const TICKET_PREFIX = 'ticket:';
+export const GAP_PREFIX = 'gap:';
 interface THandover {
   id: string;
   reason: string;
@@ -160,6 +181,7 @@ interface Raw {
   events: TEvent[];
   conversations: ElSummary[];
   details: Map<string, ElDetail>;
+  answers?: TAnswer[];
 }
 
 export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
@@ -246,10 +268,10 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
     status: RequestStatus,
     resolution: Resolution,
     question: string | null,
-    extra: { contact?: string | null; unsolved?: UnsolvedReason | null; language?: string | null } = {},
+    extra: { contact?: string | null; unsolved?: UnsolvedReason | null; language?: string | null; id?: string; note?: string | null } = {},
   ) => {
     const r: ServiceRequest = {
-      id: `req_${e.id}`,
+      id: extra.id ?? `req_${e.id}`,
       call_id: e.conversationId ?? null,
       contact: extra.contact ?? null,
       service,
@@ -259,7 +281,7 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
       resolution,
       unsolved_reason: extra.unsolved ?? null,
       assigned_to: null,
-      note: null,
+      note: extra.note ?? null,
       created_at: e.ts,
       updated_at: e.ts,
     };
@@ -311,7 +333,14 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
       case 'request_logged': {
         const r = requestByRef.get(str(d.ref));
         const service = str(d.service) || r?.serviceId || svcFromConv();
-        const rid = addRequest(e, service, 'open', 'task_created', r?.details ?? str(d.summary), { contact: r?.contact, language: r?.language });
+        // Ticket status comes from hala_requests.status (migration 002): done = solved.
+        const status: RequestStatus = r?.status === 'done' ? 'solved' : 'open';
+        const rid = addRequest(e, service, status, 'task_created', r?.details ?? str(d.summary), {
+          contact: r?.contact,
+          language: r?.language,
+          id: `${TICKET_PREFIX}${str(d.ref)}`,
+          note: r?.resolution ?? null,
+        });
         push(e, service === 'complaint' ? 'complaint_logged' : 'maintenance_logged', service, `${str(d.ref)} · ${str(d.summary).slice(0, 80)}`, rid);
         break;
       }
@@ -337,14 +366,14 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
         const service = svcFromConv();
         const rid = addRequest(e, service, 'unsolved', 'unanswered', q, { unsolved: 'unknown_answer', language: isArabic(q) ? 'ar' : 'en' });
         push(e, 'kb_miss', service, `didn't know: ${q.slice(0, 80)}`, rid);
-        const key = q.trim().toLowerCase();
+        const key = normQuestion(q);
         const g = gaps.get(key);
         if (g) {
           g.times_asked++;
           g.last_asked_at = e.ts;
         } else if (key) {
           gaps.set(key, {
-            id: `gap_${e.id}`,
+            id: `${GAP_PREFIX}${key}`,
             question: q,
             service,
             language: isArabic(q) ? 'ar' : 'en',
@@ -384,6 +413,31 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
     }
   }
 
+  // Merge admin answers (hala_knowledge_answers). Answered questions stay listed even if not asked again.
+  for (const a of raw.answers ?? []) {
+    const key = a.question_norm || normQuestion(a.question);
+    const g = gaps.get(key);
+    const merged = {
+      status: a.status,
+      answer_en: a.answer_en,
+      answer_ar: a.answer_ar,
+      answered_by: a.answered_by,
+      answered_at: a.answered_at,
+      times_used: a.times_used ?? 0,
+      service: g?.service && g.service !== 'none' ? g.service : a.service_id,
+    };
+    if (g) Object.assign(g, merged);
+    else
+      gaps.set(key, {
+        id: `${GAP_PREFIX}${key}`,
+        question: a.question,
+        language: isArabic(a.question) ? 'ar' : 'en',
+        times_asked: 0,
+        first_asked_at: a.created_at,
+        last_asked_at: a.updated_at,
+        ...merged,
+      });
+  }
   db.knowledge_gaps = [...gaps.values()];
 
   db.bookings = raw.bookings.map(
@@ -409,7 +463,7 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
       kind: r.serviceId === 'complaint' ? 'complaint' : 'maintenance',
       service: r.serviceId,
       priority: 'normal',
-      status: 'open',
+      status: r.status === 'done' ? 'done' : r.status === 'in_progress' ? 'in_progress' : 'open',
       title: `${r.ref} · ${r.callerName}`,
       details: { details: r.details, location: r.location },
       created_at: r.createdAt,
@@ -437,6 +491,7 @@ export function createTeamSource(): DataSource {
   const details = new Map<string, ElDetail>();
   const listeners = new Set<() => void>();
   let cache: Promise<Db> | null = null;
+  let lastDb: Db | null = null;
   let health: HealthItem[] = [];
   let es: EventSource | null = null;
   let poll: ReturnType<typeof setInterval> | null = null;
@@ -480,6 +535,8 @@ export function createTeamSource(): DataSource {
           (x): TRequest => ({
             ref: str(x.ref), serviceId: str(x.service_id), callerName: str(x.caller_name), contact: str(x.contact), details: str(x.details),
             location: o(x.location), language: x.language === 'ar' ? 'ar' : 'en', conversationId: o(x.conversation_id), createdAt: str(x.created_at),
+            status: x.status === 'done' ? 'done' : x.status === 'in_progress' ? 'in_progress' : x.status === 'open' ? 'open' : undefined,
+            resolution: o(x.resolution) ?? null,
           }),
         ),
         handovers: h.map(
@@ -490,6 +547,8 @@ export function createTeamSource(): DataSource {
           }),
         ),
         events: e.map((x): TEvent => ({ id: str(x.id), ts: str(x.ts), conversationId: o(x.conversation_id), type: str(x.type), data: (x.data as Row) ?? {} })),
+        // Migration 002 may not be run yet: then Teach answers are simply empty.
+        answers: (await sbGet('hala_knowledge_answers', 'updated_at').catch(() => null)) as TAnswer[] | null,
       };
     } catch (err) {
       const msg = (err as Error).message;
@@ -550,11 +609,17 @@ export function createTeamSource(): DataSource {
         // Supabase is the store of record; the agent server's admin API is the fallback.
         const talk = sbRes.ok ? sbRes : talkRes && talkRes.ok ? talkRes : sbRes;
         health = [
-          { label: 'Supabase', ok: sbRes.ok, detail: sbRes.ok ? `${sbRes.bookings.length} bookings · ${sbRes.events.length} events` : sbRes.why },
+          {
+            label: 'Supabase',
+            ok: sbRes.ok,
+            detail: sbRes.ok
+              ? `${sbRes.bookings.length} bookings · ${sbRes.events.length} events${sbRes.answers ? '' : ' · Teach table missing: run migration 002'}`
+              : sbRes.why,
+          },
           ...(talkRes ? [{ label: 'Agent server', ok: talkRes.ok, detail: talkRes.ok ? `${talkRes.events.length} events · ${proxy.talkUrl}` : talkRes.why }] : []),
           { label: 'ElevenLabs', ok: el.ok, detail: el.ok ? `${el.conversations.length} conversations` : el.why },
         ];
-        return mapTeamData(
+        return (lastDb = mapTeamData(
           {
             bookings: talk.ok ? talk.bookings : [],
             requests: talk.ok ? talk.requests : [],
@@ -562,9 +627,10 @@ export function createTeamSource(): DataSource {
             events: talk.ok ? talk.events : [],
             conversations: el.ok ? el.conversations : [],
             details,
+            answers: sbRes.ok ? sbRes.answers ?? [] : [],
           },
           agents,
-        );
+        ));
       });
     }
     return cache;
@@ -583,6 +649,30 @@ export function createTeamSource(): DataSource {
       body: JSON.stringify(body),
     });
     if (!res?.ok) throw new Error(res?.message ?? `${name} failed`);
+    refresh();
+  };
+
+  const migration002 = (e: Error): never => {
+    throw new Error(/PGRST20[45]|column|does not exist|Could not find/.test(e.message) ? 'Run migration 002 in the Supabase SQL editor first (agent/09-supabase/migrations/002_teach_and_ticket_status.sql).' : e.message);
+  };
+
+  /** Upsert one hala_knowledge_answers row per question (unique on question_norm). */
+  const saveAnswer = async (gapId: string, fields: Row) => {
+    if (!proxy.supabase) return notYet('Saving an answer for the agent')();
+    const gap = lastDb?.knowledge_gaps.find((g) => g.id === gapId);
+    if (!gap) throw new Error('Question not found. Refresh and try again.');
+    const now = new Date().toISOString();
+    await getJson('/sb-api/hala_knowledge_answers?on_conflict=question_norm', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({
+        question: gap.question,
+        question_norm: normQuestion(gap.question),
+        service_id: gap.service && gap.service !== 'none' ? gap.service : null,
+        updated_at: now,
+        ...fields,
+      }),
+    }).catch(migration002);
     refresh();
   };
 
@@ -623,10 +713,26 @@ export function createTeamSource(): DataSource {
       if (!proxy.supabase) return notYet('Changing a handover status')();
       return sbPatch(`hala_handovers?id=eq.${encodeURIComponent(id)}`, { status: status === 'picked_up' ? 'taken' : 'closed' });
     },
-    updateRequest: notYet('Changing a request'),
+    async updateRequest(id, patch) {
+      // Only tickets (maintenance / complaints) have a status column (migration 002).
+      if (!id.startsWith(TICKET_PREFIX) || !proxy.supabase)
+        return notYet('Changing this request (only maintenance tickets and complaints can be closed)')();
+      const body: Row = { updated_at: new Date().toISOString() };
+      if (patch.status) body.status = patch.status === 'solved' ? 'done' : patch.status === 'needs_followup' ? 'in_progress' : 'open';
+      if (patch.note !== undefined) body.resolution = patch.note;
+      return sbPatch(`hala_requests?ref=eq.${encodeURIComponent(id.slice(TICKET_PREFIX.length))}`, body).catch(migration002);
+    },
     logFollowup: notYet('Logging a follow-up'),
-    answerGap: notYet('Saving an answer for the agent'),
-    setGapStatus: notYet('Marking a question out of scope'),
+    answerGap: (id, a) =>
+      saveAnswer(id, {
+        answer_en: a.answer_en,
+        answer_ar: a.answer_ar || null,
+        service_id: a.service === 'none' ? null : a.service,
+        status: 'answered',
+        answered_by: 'dashboard admin',
+        answered_at: new Date().toISOString(),
+      }),
+    setGapStatus: (id, status) => saveAnswer(id, { status }),
 
     subscribe(onChange) {
       listeners.add(onChange);

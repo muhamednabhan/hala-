@@ -94,14 +94,22 @@ create table if not exists hala_conversations (
 The dashboard's `teamSource.ts` would then read that table instead of calling ElevenLabs. This is agent-server
 work (Briyan / Supabase owner), not dashboard work.
 
+## Teach the agent and ticket status (migration 002)
+
+`agent/09-supabase/migrations/002_teach_and_ticket_status.sql` (branch `feature/12-teach-answers`) adds:
+
+- `hala_knowledge_answers`: one row per question HALA could not answer. The Teach page saves answers and
+  "out of scope" here (upsert on `question_norm`). The agent's `lookup_fact` should read `status = 'answered'`
+  rows before saying "I don't know" and bump `times_used` (agent-side change, owned by the agent team).
+- `hala_requests.status / resolution / updated_at`: "Mark solved" and "Edit" on maintenance tickets and
+  complaints write here.
+
+Until 002 is run, those buttons say so, and the Supabase dot's tooltip says "Teach table missing".
+
 ## What does not work in live mode yet
 
-Buttons that need a write endpoint the agent server does not have yet show a clear message instead:
-change request status, follow-ups, **saving Teach answers**, handover pick-up / resolve, marking a booking completed.
-Cancel and reschedule work (they use the agent's own booking tools). All buttons work in mock mode.
-
-The biggest one for the pitch is **Teach the agent**: answers need a table the agent's `lookup_fact` tool also
-reads (today the fact base is in code, `agent/02-catalogue/src/facts.ts`).
+Follow-ups, assigning / noting non-ticket requests, and marking a booking completed need agent-side storage
+that doesn't exist; those buttons explain why. Everything works in mock mode.
 
 ## Code map
 

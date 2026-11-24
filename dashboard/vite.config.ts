@@ -20,7 +20,7 @@ function readEnvFile(path: string): Record<string, string> {
  */
 const SUPABASE_ALLOW: Record<string, RegExp> = {
   GET: /^\/(hala_bookings|hala_requests|hala_handovers|hala_events|hala_knowledge_answers)(\?|$)/,
-  PATCH: /^\/(hala_handovers|hala_bookings|hala_knowledge_answers)\?id=eq\.|^\/hala_bookings\?ref=eq\./,
+  PATCH: /^\/(hala_handovers|hala_bookings|hala_knowledge_answers)\?id=eq\.|^\/(hala_bookings|hala_requests)\?ref=eq\./,
   POST: /^\/hala_knowledge_answers(\?|$)/,
 };
 
