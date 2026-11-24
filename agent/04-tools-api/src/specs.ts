@@ -113,7 +113,8 @@ export const TOOL_SPECS: ToolSpec[] = [
       caller_name: { type: 'string', description: "The caller's name (demo data)." },
       contact: { type: 'string', description: 'A phone number or an email (demo data).' },
       details: { type: 'string', description: 'One or two sentences describing the problem, in the caller\'s own words.' },
-      location: { type: 'string', optional: true, description: 'Unit or office number (demo data), if relevant.' },
+      location: { type: 'string', optional: true, description: 'Building or community name and the unit or office number (demo data), if relevant.' },
+      urgency: { type: 'string', enum: ['emergency', 'routine'], optional: true, description: 'For maintenance: emergency or routine. Ask the caller. Omit for complaints.' },
       language
     },
     timeoutSecs: 10, preSpeech: 'auto'

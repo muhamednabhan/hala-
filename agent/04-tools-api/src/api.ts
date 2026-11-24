@@ -56,11 +56,22 @@ const serviceView = (s: Service) => ({
   fulfilment: s.fulfilment,
   audience: s.audience,
   documents: s.documents,
+  // Fee and time exactly as the knowledge base words them. DEMO values: always say so when stating them.
   demo_fee_aed: s.demoFeeAed,
+  demo_fee_text: s.feeText,
   demo_processing_days: s.demoDays,
+  demo_timeline_text: s.timelineText,
+  ...(s.voiceSummary ? { voice_summary: s.voiceSummary } : {}),
+  ...(s.eligibility ? { eligibility: s.eligibility } : {}),
+  ...(s.steps ? { process_steps: s.steps } : {}),
+  ...(s.policy ? { policy_for_agent: s.policy } : {}),
+  ...(s.notes ? { extra_facts: s.notes } : {}),
   ...(s.clarify ? { clarifying_question: s.clarify } : {}),
   ...(s.agentNote ? { note_for_agent: s.agentNote } : {})
 })
+
+/** Where a person can be reached. From the DSO knowledge base. The agent may offer it after a hand-over. */
+const HUMAN_CONTACT = { phone: '600 59 55 57', hours: 'Monday to Friday, 8 AM to 3 PM Dubai time', email: 'hello@dso.ae' }
 
 const NOT_FOUND_HELP = 'Offer to connect them to the DSO team and call handover_to_human if they accept.'
 
@@ -219,7 +230,9 @@ export function createToolApi(opts: ToolApiOptions) {
       if (!service || service.fulfilment !== 'ticket') {
         return { body: { ok: false, error_code: 'not_a_ticket_service', message: 'log_request is only for maintenance and complaints', instruction: 'Call find_service to pick the right service.' }, event: { type: 'tool_error', data: { code: 'not_a_ticket_service' } } }
       }
-      const details = clean(a.details, 500)
+      // Urgency travels inside the details so any adapter (file, Supabase) and the dashboard see it without a new column.
+      const urgent = a.urgency === 'emergency' ? '[EMERGENCY] ' : ''
+      const details = `${urgent}${clean(a.details, 500)}`.slice(0, 520)
       const callerName = clean(a.caller_name, 80)
       const contact = clean(a.contact, 80)
       if (!callerName || contact.length < 3 || !details) {
@@ -235,8 +248,8 @@ export function createToolApi(opts: ToolApiOptions) {
       return {
         body: {
           ok: true, ref: request.ref, ref_spoken: spokenRef(request.ref), service: service.name, already_logged: Boolean(existing),
-          expected_demo_days: service.demoDays, demo_notice: DEMO_NOTICE,
-          instruction: 'Confirm that the request is logged, give the reference digit by digit, and say the DSO team will follow up. Do not promise a time.'
+          demo_timeline_text: service.timelineText, demo_notice: DEMO_NOTICE,
+          instruction: 'Confirm that the request is logged and give the reference digit by digit. You may say the timeline only if the caller asks, as a demo value. Do not promise a time or an outcome.'
         },
         event: { type: 'request_logged', data: { ref: request.ref, service: service.id, caller: callerName, contact: maskContact(contact), summary: details.slice(0, 140) } }
       }
@@ -267,8 +280,8 @@ export function createToolApi(opts: ToolApiOptions) {
       await stores.handovers.create(handover)
       return {
         body: {
-          ok: true, handover_id: handover.id,
-          instruction: 'Tell the caller once, calmly, that the DSO team has been notified and a person will take over. Say what happens next in one sentence. Do not promise a callback time, a refund or an outcome.'
+          ok: true, handover_id: handover.id, human_contact: HUMAN_CONTACT,
+          instruction: 'Tell the caller once, calmly, that the DSO team has been notified and a person will take over. Say what happens next in one sentence. You may offer the phone number (read it in groups) or an in-person appointment at the HALA desk (service desk_resolution) if they prefer. Do not promise a callback time, a refund, a waiver or an outcome.'
         },
         event: { type: 'handover_requested', data: { id: handover.id, reason, language: handover.language, summary: handover.summary, caller: handover.callerName } }
       }

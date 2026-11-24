@@ -42,6 +42,20 @@ export interface Service {
   demoDays: number | null
   /** Phrases and words that identify this service, per language. Matched whole-word. */
   keywords: { en: string[]; ar: string[] }
+  /** The sentence the agent can say to explain the service. From the DSO knowledge base. */
+  voiceSummary?: Bilingual
+  /** Who can apply / quota rules. English; the agent translates when speaking Arabic. */
+  eligibility?: string
+  /** Process steps in order. English; the agent translates when speaking Arabic. */
+  steps?: string[]
+  /** Fee as the knowledge base words it, e.g. "AED 3,500 standard / AED 4,800 urgent". DEMO value. */
+  feeText?: string
+  /** Processing time as the knowledge base words it, e.g. "5 to 7 working days". DEMO value. */
+  timelineText?: string
+  /** Dispute and edge-case policy the agent must follow for this service. */
+  policy?: string
+  /** Extra facts about the service (reference prices, options). */
+  notes?: string[]
   /** The one clarifying question to ask when the caller is vague about this service. */
   clarify?: Bilingual
   /** Extra guidance for the agent (never read aloud verbatim). */
@@ -140,6 +154,6 @@ export interface Fact {
   /** Words and phrases that should trigger this fact. */
   keywords: { en: string[]; ar: string[] }
   answer: Bilingual
-  /** Where the fact comes from. Only brief/handover facts are allowed; others need a human to verify. */
-  source: 'brief' | 'handover' | 'dso-public'
+  /** Where the fact comes from. Brief, handover and the DSO knowledge base (v1.0) are accepted as verified. */
+  source: 'brief' | 'handover' | 'kb' | 'dso-public'
 }
