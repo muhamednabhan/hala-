@@ -1,0 +1,11 @@
+import { hala, json } from '@/lib/server'
+
+export const dynamic = 'force-dynamic'
+
+/** POST /api/tools/:tool, called by ElevenLabs servers (webhook tools). Needs the x-hala-secret header. */
+export async function POST(req: Request, ctx: { params: Promise<{ tool: string }> }) {
+  const { tool } = await ctx.params
+  const body = await req.json().catch(() => ({}))
+  const res = await hala().api.handle(tool, req.headers, body)
+  return json(res.body, res.status)
+}
