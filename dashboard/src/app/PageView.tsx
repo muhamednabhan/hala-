@@ -13,17 +13,20 @@ export function PageView({ page }: { page: PageId }) {
   if (!widgets.length) {
     const meta = PAGES.find((p) => p.id === page);
     return (
-      <div className="rounded-xl border border-dashed border-slate-700 p-12 text-center text-slate-400">
-        <div className="text-lg font-semibold text-slate-200">{meta?.label}</div>
+      <div className="rounded-xl border border-dashed border-gold-300 bg-white p-12 text-center text-stone-500">
+        <div className="font-display text-2xl font-semibold text-ink">{meta?.label}</div>
         <div className="mt-1">Coming in build step {meta?.buildStep}.</div>
       </div>
     );
   }
   return (
-    <div className="grid grid-cols-12 gap-4">
+    <div className="grid grid-cols-12 items-start gap-5">
       {widgets.map(({ id, title, size, Component }) => (
-        <section key={id} className={`${SPAN[size]} rounded-2xl bg-slate-900/40 p-4 ring-1 ring-slate-800`}>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-300">{title}</h2>
+        <section key={id} className={`${SPAN[size]} rounded-xl border border-stone-200 bg-white p-5 shadow-card`}>
+          <h2 className="mb-4 flex items-center gap-2.5 text-[12px] font-semibold uppercase tracking-[0.14em] text-stone-600">
+            <span className="h-4 w-[3px] rounded-full bg-gold-500" />
+            {title}
+          </h2>
           <Component />
         </section>
       ))}

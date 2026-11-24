@@ -14,15 +14,17 @@ function Segmented<T extends string>({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs uppercase tracking-wider text-slate-500">{label}</span>
-      <div className="flex rounded-lg bg-slate-900 p-0.5 ring-1 ring-slate-800">
+      <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-stone-500">{label}</span>
+      <div className="flex rounded-lg bg-stone-100 p-0.5 ring-1 ring-stone-200">
         {options.map((o) => (
           <button
             key={o.value}
             type="button"
             onClick={() => onChange(o.value)}
             className={`rounded-md px-3 py-1 text-sm font-medium transition ${
-              value === o.value ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
+              value === o.value
+                ? 'bg-white text-ink shadow-card ring-1 ring-gold-300'
+                : 'text-stone-500 hover:text-ink'
             }`}
           >
             {o.label}
@@ -37,9 +39,9 @@ export function FilterBar() {
   const { filters, setFilters } = useData();
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => setFilters({ ...filters, [k]: v });
   return (
-    <div className="flex flex-wrap items-center gap-4">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
       <Segmented
-        label="Range"
+        label="Period"
         value={filters.range}
         onChange={(v) => set('range', v)}
         options={[

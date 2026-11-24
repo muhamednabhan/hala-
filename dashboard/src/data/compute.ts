@@ -1,7 +1,7 @@
 // Pure functions: raw tables (Db) + filters -> what widgets need.
 // Shared by mockSource and supabaseSource so both modes show identical numbers.
 
-import type { CallDetail, Db, FeedItem, Filters, Kpis, Language, RequestStatus } from './types';
+import type { CallDetail, ConversationRow, Db, FeedItem, Filters, Kpis, Language, RequestStatus, TranscriptTurn } from './types';
 
 export function startOfToday(now = Date.now()): number {
   const d = new Date(now);
@@ -107,6 +107,7 @@ const TYPE_STATUS: Record<string, RequestStatus> = {
   handover: 'needs_followup',
   kb_miss: 'unsolved',
   error: 'unsolved',
+  handover_resolved: 'solved',
 };
 
 const TYPE_DETAIL: Record<string, string> = {
@@ -121,6 +122,7 @@ const TYPE_DETAIL: Record<string, string> = {
   maintenance_logged: 'maintenance ticket created',
   kb_miss: "agent didn't know the answer",
   error: 'error',
+  handover_resolved: 'resolved by staff',
 };
 
 export function buildFeed(db: Db, f: Filters, limit = 50): FeedItem[] {
@@ -161,3 +163,57 @@ export function buildCallDetail(db: Db, callId: string): CallDetail | null {
     feedback: mine(db.feedback),
   };
 }
+
+// ---- Conversations (ElevenLabs transcripts) ----
+
+export const turnText = (t: TranscriptTurn) => t.message ?? t.text ?? '';
+
+export function buildConversations(db: Db, f: Filters, query = '', limit = 150): ConversationRow[] {
+  const d = filterDb(db, f);
+  const q = query.trim().toLowerCase();
+  const reqsByCall = new Map<string, Db['requests']>();
+  for (const r of d.requests) {
+    if (!r.call_id) continue;
+    const list = reqsByCall.get(r.call_id) ?? [];
+    list.push(r);
+    reqsByCall.set(r.call_id, list);
+  }
+  const ratingByCall = new Map(d.feedback.map((x) => [x.call_id, x.rating]));
+  const rows: ConversationRow[] = [];
+  for (const c of [...d.calls].sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))) {
+    const turns = c.transcript ?? [];
+    let snippet = turnText(turns.find((t) => t.role === 'user') ?? { role: 'user' }) || c.summary || '';
+    if (q) {
+      const hit = turns.find((t) => turnText(t).toLowerCase().includes(q));
+      if (hit) snippet = turnText(hit);
+      else if (!(c.summary ?? '').toLowerCase().includes(q)) continue;
+    }
+    const reqs = reqsByCall.get(c.id) ?? [];
+    rows.push({
+      id: c.id,
+      started_at: c.started_at,
+      channel: c.channel,
+      language: c.language,
+      status: c.status,
+      duration_secs: c.duration_secs,
+      summary: c.summary,
+      turnCount: turns.length,
+      services: [...new Set(reqs.map((r) => r.service))],
+      statuses: reqs.map((r) => r.status),
+      rating: ratingByCall.get(c.id) ?? null,
+      snippet,
+    });
+    if (rows.length >= limit) break;
+  }
+  return rows;
+}
+
+export function buildLatestCall(db: Db, f: Filters): CallDetail | null {
+  const d = filterDb(db, f);
+  let latest: Db['calls'][number] | undefined;
+  for (const c of d.calls) if (!latest || Date.parse(c.started_at) > Date.parse(latest.started_at)) latest = c;
+  return latest ? buildCallDetail(db, latest.id) : null;
+}
+
+/** Demo follow-up threshold (real: 2 days): open requests older than this need a follow-up. */
+export const FOLLOWUP_THRESHOLD_MS = 2 * 60 * 1000;

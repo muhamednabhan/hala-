@@ -9,22 +9,20 @@ function Card({
   label,
   value,
   sub,
-  accent = 'border-slate-700',
-  valueClass = 'text-slate-50',
-  className = '',
+  accent = 'border-t-stone-200',
+  valueClass = 'text-ink',
 }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   accent?: string;
   valueClass?: string;
-  className?: string;
 }) {
   return (
-    <div className={`rounded-xl border-l-4 bg-slate-900 p-4 ring-1 ring-slate-800 ${accent} ${className}`}>
-      <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</div>
-      <div className={`mt-1 text-4xl font-bold tabular-nums leading-tight ${valueClass}`}>{value}</div>
-      {sub != null && <div className="mt-1 text-sm text-slate-400">{sub}</div>}
+    <div className={`rounded-lg border border-stone-200 border-t-[3px] bg-white px-4 py-3.5 ${accent}`}>
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">{label}</div>
+      <div className={`mt-1 text-[34px] font-semibold leading-tight tabular-nums ${valueClass}`}>{value}</div>
+      {sub != null && <div className="mt-0.5 text-[13px] text-stone-500">{sub}</div>}
     </div>
   );
 }
@@ -32,24 +30,26 @@ function Card({
 function LanguageSplit({ split }: { split: Kpis['languageSplit'] }) {
   const total = split.en + split.ar + split.mixed;
   const parts = [
-    { key: 'EN', n: split.en, cls: 'bg-indigo-500' },
-    { key: 'AR', n: split.ar, cls: 'bg-teal-500' },
-    { key: 'MIX', n: split.mixed, cls: 'bg-slate-500' },
+    { key: 'English', n: split.en, cls: 'bg-indigo-500' },
+    { key: 'Arabic', n: split.ar, cls: 'bg-teal-600' },
+    { key: 'Mixed', n: split.mixed, cls: 'bg-gold-400' },
   ];
   return (
-    <div className="rounded-xl border-l-4 border-slate-700 bg-slate-900 p-4 ring-1 ring-slate-800">
-      <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Language split</div>
-      <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-slate-800">
+    <div className="rounded-lg border border-stone-200 bg-white px-4 py-3.5">
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">Language split</div>
+        <div className="flex gap-4 text-[13px] tabular-nums text-stone-600">
+          {parts.map((p) => (
+            <span key={p.key}>
+              <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${p.cls}`} />
+              {p.key} <b className="text-ink">{fmtPct(p.n, total)}</b>
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-stone-100">
         {parts.map((p) => (
           <div key={p.key} className={p.cls} style={{ width: total ? `${(100 * p.n) / total}%` : 0 }} />
-        ))}
-      </div>
-      <div className="mt-3 flex justify-between text-sm tabular-nums">
-        {parts.map((p) => (
-          <span key={p.key} className="text-slate-300">
-            <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${p.cls}`} />
-            <b>{p.key}</b> {fmtPct(p.n, total)}
-          </span>
         ))}
       </div>
     </div>
@@ -58,32 +58,30 @@ function LanguageSplit({ split }: { split: Kpis['languageSplit'] }) {
 
 function KpiCardsView() {
   const { data: k, error } = useQuery((s, f) => s.getKpis(f));
-  if (error) return <div className="text-red-400">Couldn't load metrics: {error}</div>;
-  if (!k) return <div className="text-slate-500">Loading…</div>;
+  if (error) return <div className="text-red-700">Couldn't load metrics: {error}</div>;
+  if (!k) return <div className="text-stone-400">Loading…</div>;
 
   return (
     <div className="space-y-3">
-      {/* Headline row */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="col-span-2 rounded-xl border-l-4 border-emerald-500 bg-gradient-to-br from-emerald-500/15 to-slate-900 p-5 ring-1 ring-slate-800 lg:col-span-1 lg:row-span-1">
-          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-300">Resolution rate</div>
-          <div className="mt-1 text-6xl font-extrabold tabular-nums text-emerald-400">
+        <div className="col-span-2 rounded-lg border border-gold-300 bg-gradient-to-br from-gold-50 via-white to-white px-5 py-4 lg:col-span-1">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gold-700">Resolution rate</div>
+          <div className="mt-1 text-6xl font-semibold tabular-nums leading-none text-emerald-700">
             {k.totalRequests ? `${Math.round(k.resolutionRate * 100)}%` : '—'}
           </div>
-          <div className="mt-1 text-sm text-slate-300">
-            {fmtInt(k.status.solved)} of {fmtInt(k.totalRequests)} requests solved by the agent
+          <div className="mt-2 text-[13px] text-stone-600">
+            {fmtInt(k.status.solved)} of {fmtInt(k.totalRequests)} requests solved by HALA
           </div>
         </div>
         <Card label="Total calls" value={fmtInt(k.totalCalls)} sub={`${fmtInt(k.callsToday)} today`} />
         <Card label="Total requests" value={fmtInt(k.totalRequests)} sub={`${k.requestsPerCall.toFixed(2)} per call`} />
         <Card
-          label="Calls → action"
+          label="Calls with an action"
           value={fmtInt(k.callsWithAction)}
-          sub={`${fmtPct(k.callsWithAction, k.totalCalls)} booked / task / handover`}
+          sub={`${fmtPct(k.callsWithAction, k.totalCalls)} booked, tasked or handed over`}
         />
       </div>
 
-      {/* Request status */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {STATUS_ORDER.map((s) => (
           <Card
@@ -91,41 +89,44 @@ function KpiCardsView() {
             label={STATUS_META[s].label}
             value={fmtInt(k.status[s])}
             valueClass={STATUS_META[s].text}
-            accent={STATUS_META[s].border}
+            accent={STATUS_META[s].border.replace('border-', 'border-t-')}
             sub={`${fmtPct(k.status[s], k.totalRequests, 1)} of requests`}
           />
         ))}
       </div>
 
-      {/* Operations */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card
           label="Bookings made"
           value={fmtInt(k.bookingsMade)}
-          sub={
-            <>
-              {fmtInt(k.bookingsRescheduled)} rescheduled · {fmtInt(k.bookingsCancelled)} cancelled
-            </>
-          }
+          sub={`${fmtInt(k.bookingsRescheduled)} rescheduled · ${fmtInt(k.bookingsCancelled)} cancelled`}
         />
         <Card
           label="Handovers waiting"
           value={fmtInt(k.waitingHandovers)}
-          valueClass={k.waitingHandovers ? 'text-amber-400' : 'text-slate-50'}
-          accent={k.waitingHandovers ? 'border-amber-500' : 'border-slate-700'}
-          sub="human needed now"
+          valueClass={k.waitingHandovers ? 'text-amber-700' : 'text-ink'}
+          accent={k.waitingHandovers ? 'border-t-amber-500' : 'border-t-stone-200'}
+          sub="a staff member is needed now"
         />
         <Card
           label="Knowledge gaps"
           value={fmtInt(k.gapsWaiting)}
-          valueClass={k.gapsWaiting ? 'text-violet-300' : 'text-slate-50'}
-          accent="border-violet-500"
-          sub="waiting for an admin answer"
+          valueClass="text-gold-700"
+          accent="border-t-gold-500"
+          sub="questions waiting for an answer"
         />
         <Card
-          label="Avg rating"
-          value={k.avgRating != null ? `${k.avgRating.toFixed(2)} ★` : '—'}
-          valueClass="text-yellow-300"
+          label="Caller rating"
+          value={
+            k.avgRating != null ? (
+              <>
+                {k.avgRating.toFixed(2)}
+                <span className="ml-1 text-2xl text-gold-500">★</span>
+              </>
+            ) : (
+              '—'
+            )
+          }
           sub={`${fmtInt(k.ratingCount)} ratings · avg call ${fmtDuration(k.avgDurationSecs)}`}
         />
       </div>
@@ -135,5 +136,8 @@ function KpiCardsView() {
   );
 }
 
-const KpiCards: WidgetDef = { id: 'kpi-cards', title: 'Key metrics', size: 'lg', Component: KpiCardsView };
+// Explicit class list so Tailwind keeps the derived border-t-* colours.
+// border-t-emerald-600 border-t-blue-600 border-t-amber-500 border-t-red-600
+
+const KpiCards: WidgetDef = { id: 'kpi-cards', title: 'Service performance', size: 'lg', Component: KpiCardsView };
 export default KpiCards;

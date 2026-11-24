@@ -1,68 +1,111 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { DataSource } from '../data/source';
+import { Emblem } from '../ui/Badges';
 import { PAGES, type PageId } from '../widgets/registry';
 import { CallDrawer } from './CallDrawer';
 import { DataProvider } from './DataContext';
 import { FilterBar } from './FilterBar';
 import { PageView } from './PageView';
 
+function Clock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="text-right leading-tight">
+      <div className="text-sm font-semibold tabular-nums text-ink">
+        {now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+      </div>
+      <div className="text-[11px] text-stone-500">
+        {now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+      </div>
+    </div>
+  );
+}
+
 export function App({ source }: { source: DataSource }) {
   const [page, setPage] = useState<PageId>('overview');
   const [callId, setCallId] = useState<string | null>(null);
   const closeCall = useCallback(() => setCallId(null), []);
+  const current = PAGES.find((p) => p.id === page);
 
   return (
     <DataProvider source={source} openCall={setCallId}>
-      <div className="flex min-h-full">
-        <nav className="hidden w-56 shrink-0 flex-col gap-1 border-r border-slate-800 bg-slate-950 p-4 md:flex">
-          <div className="mb-6 px-2">
-            <div className="text-lg font-extrabold tracking-tight">
-              HALA <span className="text-emerald-400">Concierge</span>
+      <div className="flex min-h-full flex-col">
+        <div className="h-1 bg-gradient-to-r from-gold-700 via-gold-400 to-gold-700" />
+        <header className="flex items-center justify-between gap-4 border-b border-stone-200 bg-white px-6 py-3">
+          <div className="flex items-center gap-3">
+            <Emblem className="h-9 w-9 text-gold-600" />
+            <div className="leading-tight">
+              <div className="font-display text-[22px] font-bold tracking-wide text-ink">
+                HALA <span className="text-gold-600">Concierge</span>
+              </div>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                Smart Services · Operations Centre
+              </div>
             </div>
-            <div className="text-xs text-slate-500">DSO voice agent · Admin</div>
           </div>
-          {PAGES.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setPage(p.id)}
-              className={`rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-                page === p.id ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+          <div className="flex items-center gap-5">
+            <span
+              className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wider ring-1 ${
+                source.mode === 'mock'
+                  ? 'bg-gold-50 text-gold-800 ring-gold-200'
+                  : 'bg-emerald-50 text-emerald-700 ring-emerald-200'
               }`}
             >
-              {p.label}
-            </button>
-          ))}
-        </nav>
+              {source.mode === 'mock' ? 'Demo data' : '● Live'}
+            </span>
+            <Clock />
+          </div>
+        </header>
 
-        <main className="min-w-0 flex-1 p-4 md:p-6">
-          <header className="mb-5 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">{PAGES.find((p) => p.id === page)?.label}</h1>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                  source.mode === 'mock' ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
+        <div className="flex min-h-0 flex-1">
+          <nav className="hidden w-60 shrink-0 flex-col gap-0.5 border-r border-stone-200 bg-white px-3 py-5 md:flex">
+            <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400">Menu</div>
+            {PAGES.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPage(p.id)}
+                className={`flex items-center justify-between border-l-2 px-3 py-2 text-left text-sm font-medium transition ${
+                  page === p.id
+                    ? 'border-gold-500 bg-gold-50 text-gold-900'
+                    : 'border-transparent text-stone-600 hover:bg-stone-50 hover:text-ink'
                 }`}
               >
-                {source.mode === 'mock' ? 'MOCK DATA' : 'LIVE'}
-              </span>
-            </div>
-            <FilterBar />
-          </header>
-          {/* Mobile page switcher */}
-          <select
-            className="mb-4 w-full rounded-lg bg-slate-900 p-2 md:hidden"
-            value={page}
-            onChange={(e) => setPage(e.target.value as PageId)}
-          >
-            {PAGES.map((p) => (
-              <option key={p.id} value={p.id}>
                 {p.label}
-              </option>
+                {!p.ready && <span className="text-[10px] uppercase tracking-wider text-stone-400">soon</span>}
+              </button>
             ))}
-          </select>
-          <PageView page={page} />
-        </main>
+            <div className="mt-auto px-3 pt-6 text-[11px] leading-relaxed text-stone-400">
+              Fees and processing times shown are <b className="text-gold-700">DEMO</b> estimates.
+            </div>
+          </nav>
+
+          <main className="min-w-0 flex-1 px-4 py-6 md:px-8">
+            <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <h1 className="font-display text-3xl font-bold text-ink">{current?.label}</h1>
+                {current?.subtitle && <p className="mt-0.5 text-sm text-stone-500">{current.subtitle}</p>}
+              </div>
+              <FilterBar />
+            </div>
+            <select
+              className="mb-4 w-full rounded-lg border border-stone-200 bg-white p-2 md:hidden"
+              value={page}
+              onChange={(e) => setPage(e.target.value as PageId)}
+            >
+              {PAGES.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <PageView page={page} />
+          </main>
+        </div>
       </div>
       {callId && <CallDrawer callId={callId} onClose={closeCall} />}
     </DataProvider>

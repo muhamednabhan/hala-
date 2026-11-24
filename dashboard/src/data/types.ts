@@ -28,9 +28,12 @@ export type EventType =
   | 'error'
   | 'feedback';
 
+/** ElevenLabs transcript format (bridge + post-call webhook). `text` accepted for older rows. */
 export interface TranscriptTurn {
   role: 'agent' | 'user';
-  text: string;
+  message?: string | null;
+  text?: string;
+  time_in_call_secs?: number;
 }
 
 export interface Call {
@@ -194,4 +197,29 @@ export interface CallDetail {
   bookings: Booking[];
   handovers: Handover[];
   feedback: Feedback[];
+}
+
+export type InsightTone = 'critical' | 'warning' | 'positive' | 'info';
+export interface Insight {
+  id: string;
+  tone: InsightTone;
+  title: string;
+  detail: string;
+  metric?: string;
+  quote?: string;
+}
+
+export interface ConversationRow {
+  id: string;
+  started_at: string;
+  channel: string;
+  language: string | null;
+  status: string;
+  duration_secs: number | null;
+  summary: string | null;
+  turnCount: number;
+  services: string[];
+  statuses: RequestStatus[];
+  rating: number | null;
+  snippet: string;
 }

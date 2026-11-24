@@ -130,3 +130,19 @@ export const GAP_QUESTIONS: { question: string; service: string; language: 'en' 
   },
   { question: 'كم يستغرق إصدار تأشيرة جديدة لمستثمر؟', service: 'visa_new', language: 'ar' },
 ];
+
+/** Arabic service names for follow-up messages. */
+export const SERVICE_AR: Record<string, string> = {
+  visa_renewal: 'تجديد التأشيرة',
+  visa_new: 'تأشيرة جديدة',
+  visa_cancellation: 'إلغاء التأشيرة',
+  establishment_card: 'بطاقة المنشأة',
+  access_card: 'بطاقة الدخول',
+  licence_renewal: 'تجديد الرخصة التجارية',
+  licence_amendment: 'تعديل الرخصة',
+  noc: 'شهادة عدم ممانعة',
+  leasing: 'التأجير',
+  maintenance: 'طلب صيانة',
+  complaint: 'شكوى',
+  general: 'استفسار عام',
+};

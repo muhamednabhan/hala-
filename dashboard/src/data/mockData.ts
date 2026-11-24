@@ -19,6 +19,11 @@ const NAMES = [
   'Ahmed Al Mansoori', 'Fatima Hassan', 'Priya Nair', 'Omar Khalid', 'Sara Ibrahim', 'John Mathew',
   'Aisha Rahman', 'Rajesh Kumar', 'Layla Saeed', 'Mohammed Yusuf', 'Elena Petrova', 'Hassan Ali',
 ];
+/** Callers who ring more than once (drives the repeat-caller insight). */
+const REGULARS = Array.from({ length: 18 }, (_, i) => ({
+  name: NAMES[i % NAMES.length],
+  contact: `+97150${String(4100000 + i * 7919).slice(-7)}`,
+}));
 const COMPANIES = ['Nexa Robotics FZCO', 'ByteBridge Tech', 'Oasis AI Labs', 'GreenGrid FZCO', null, null];
 
 let seq = 0;
@@ -119,12 +124,13 @@ export function addCall({ rng, db }: Ctx, startMs: number, mix: OutcomeMix, now 
   const language = rng.weighted<Language>([['en', 55], ['ar', 35], ['mixed', 10]]);
   const channel = rng.weighted<Channel>([['robot', 60], ['phone', 30], ['web', 10]]);
   const callerType = rng.weighted([['resident', 40], ['company_hr', 30], ['pro', 25], ['unknown', 5]] as const);
-  const name = rng.pick(NAMES);
-  const contact = `+9715${rng.int(0, 9)}${String(rng.int(1000000, 9999999))}`;
+  const regular = rng.chance(0.25) ? REGULARS[rng.int(0, REGULARS.length - 1)] : null;
+  const name = regular?.name ?? rng.pick(NAMES);
+  const contact = regular?.contact ?? `+9715${rng.int(0, 9)}${String(rng.int(1000000, 9999999))}`;
   const nReq = rng.weighted([[1, 60], [2, 30], [3, 10]] as const);
 
   const callLang = (): 'en' | 'ar' => (language === 'mixed' ? rng.pick(['en', 'ar'] as const) : language);
-  const transcript: TranscriptTurn[] = [{ role: 'agent', text: AGENT_HELLO[language === 'ar' ? 'ar' : 'en'] }];
+  const transcript: TranscriptTurn[] = [{ role: 'agent', message: AGENT_HELLO[language === 'ar' ? 'ar' : 'en'], time_in_call_secs: 0 }];
 
   pushEvent(db, callId, startMs, 'call_started', null, { channel });
 
@@ -249,7 +255,11 @@ export function addCall({ rng, db }: Ctx, startMs: number, mix: OutcomeMix, now 
       }
     }
 
-    transcript.push({ role: 'user', text: question }, { role: 'agent', text: agentReply(lang, resolution, detail) });
+    const secs = Math.round((t - startMs) / 1000);
+    transcript.push(
+      { role: 'user', message: question, time_in_call_secs: Math.max(1, secs - 30) },
+      { role: 'agent', message: agentReply(lang, resolution, detail), time_in_call_secs: secs },
+    );
 
     const req: ServiceRequest = {
       id: reqId,
