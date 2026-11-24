@@ -61,3 +61,21 @@ describe('knowledge-base content reaches the agent through tool results', () => 
     }
   })
 })
+
+describe('service_process and check_request', () => {
+  it('service_process returns steps, eligibility and policy for one service id, and refuses unknown ids', async () => {
+    const { call } = setup()
+    const r = await call('service_process', { service_id: 'visa_new' })
+    expect(r.ok).toBe(true)
+    expect(r.process_steps.length).toBe(4)
+    expect(r.eligibility).toMatch(/Establishment Card/)
+    expect((await call('service_process', { service_id: 'nope' })).error_code).toBe('unknown_service')
+  })
+  it('check_request reads back a logged request by reference (digits are enough)', async () => {
+    const { call } = setup()
+    const logged = await call('log_request', { service_id: 'maintenance', caller_name: 'Sara Test', contact: '0501234567', details: 'AC broken', location: 'Unit 4' })
+    const r = await call('check_request', { ref: '1001' })
+    expect(r).toMatchObject({ ok: true, request: { ref: logged.ref, caller_name: 'Sara Test', details: 'AC broken' } })
+    expect((await call('check_request', { ref: 'REQ-9999' })).error_code).toBe('not_found')
+  })
+})

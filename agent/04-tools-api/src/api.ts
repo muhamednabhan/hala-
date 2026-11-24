@@ -230,6 +230,19 @@ export function createToolApi(opts: ToolApiOptions) {
       return { body: { ok: true, booking: bookingView(booking) } }
     },
 
+    async [TOOL_NAMES.checkRequest](a) {
+      const ref = normalizeRef(clean(a.ref, 30), 'REQ')
+      const r = ref ? await stores.requests.get(ref) : undefined
+      if (!r) return { body: { ok: false, error_code: 'not_found', message: 'No request with that reference', instruction: 'Ask the caller to check the number once more, then offer a hand-over.' } }
+      return { body: { ok: true, request: { ref: r.ref, ref_spoken: spokenRef(r.ref), service: getService(r.serviceId, services)?.name, caller_name: r.callerName, details: r.details, location: r.location, logged: 'yes', logged_at_dubai: `${dubaiParts(new Date(r.createdAt)).date} ${dubaiParts(new Date(r.createdAt)).time}` }, instruction: 'Read back what was logged in one sentence. The status is not tracked here: say the DSO team will follow up, and offer a hand-over for updates.' } }
+    },
+
+    async [TOOL_NAMES.serviceProcess](a) {
+      const service = getService(clean(a.service_id, 60), services)
+      if (!service) return { body: { ok: false, error_code: 'unknown_service', message: 'No such service id', instruction: 'Use an id from the service sheet.' } }
+      return { body: { ok: true, ...serviceView(service), instruction: 'Give the steps one or two at a time, in the caller language. Any fee or time is a demo value.' } }
+    },
+
     async [TOOL_NAMES.logRequest](a, conversationId) {
       const service = getService(clean(a.service_id, 60), services)
       if (!service || service.fulfilment !== 'ticket') {

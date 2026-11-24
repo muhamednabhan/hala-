@@ -35,6 +35,8 @@ export const TOOL_NAMES = {
   reschedule: 'reschedule_appointment',
   cancel: 'cancel_appointment',
   checkBooking: 'check_booking',
+  checkRequest: 'check_request',
+  serviceProcess: 'service_process',
   logRequest: 'log_request',
   lookupFact: 'lookup_fact',
   handover: 'handover_to_human'
@@ -101,6 +103,20 @@ export const TOOL_SPECS: ToolSpec[] = [
     name: TOOL_NAMES.checkBooking,
     description: 'Look up an existing appointment by reference, to read its details back or to confirm what a caller already booked.',
     params: { ref: { type: 'string', description: 'The booking reference, e.g. HALA-1001. Digits alone are fine.' } },
+    timeoutSecs: 8, preSpeech: 'off'
+  },
+  {
+    name: TOOL_NAMES.checkRequest,
+    description: 'Look up a logged maintenance request or complaint by its reference (REQ-1001), to read back what was logged.',
+    params: { ref: { type: 'string', description: 'The request reference, e.g. REQ-1001. Digits alone are fine.' } },
+    timeoutSecs: 8, preSpeech: 'off'
+  },
+  {
+    name: TOOL_NAMES.serviceProcess,
+    description:
+      'Get the step-by-step process, who is eligible, the policy and extra facts for ONE service, by its id from the service sheet. ' +
+      'Use only when the caller asks how the process works or who can apply. Documents, fee and time are already in the sheet: do not call this for them.',
+    params: { service_id: { type: 'string', description: 'The service id from the sheet, e.g. visa_new or licence_types.' } },
     timeoutSecs: 8, preSpeech: 'off'
   },
   {

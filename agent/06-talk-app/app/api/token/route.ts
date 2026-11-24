@@ -1,5 +1,5 @@
 import { elevenlabs } from '@/lib/eleven'
-import { agentId, hasApiKey, json } from '@/lib/server'
+import { agentId, hasApiKey, json, setting } from '@/lib/server'
 import { clientKey, createRateLimiter } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
@@ -17,7 +17,9 @@ export async function GET(req: Request) {
   if (!hasApiKey()) return json({ error: 'ELEVENLABS_API_KEY is missing on the server.' }, 503)
   try {
     const { token } = await elevenlabs().conversationalAi.conversations.getWebrtcToken({ agentId: id })
-    return json({ token, agentId: id })
+    // The booking procedure starts with the conversation, so the first booking request needs no extra model step.
+    const start = (channel === 'robot' ? setting('HALA_PROC_START_ROBOT') : setting('HALA_PROC_START_WEB')) ?? ''
+    return json({ token, agentId: id, startProcedureIds: start ? start.split(',') : [] })
   } catch (e) {
     console.error('token error', (e as Error).message)
     return json({ error: 'Could not start a conversation. Check the server log.' }, 502)

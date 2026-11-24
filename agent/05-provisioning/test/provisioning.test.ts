@@ -13,7 +13,9 @@ describe('agent config', () => {
 
   it('uses Arabic as the base language and the multilingual TTS model (gotcha G1)', () => {
     expect(cc.agent.language).toBe('ar')
-    expect(cc.tts.modelId).toBe('eleven_flash_v2_5')
+    // both are multilingual models; the English-only flash v2 would garble Arabic
+    expect(['eleven_flash_v2_5', 'eleven_v3_conversational']).toContain(cc.tts.modelId)
+    expect(buildAgentConfig({ ...opts, voiceModel: 'flash' }).conversationConfig.tts.modelId).toBe('eleven_flash_v2_5')
     expect(cc.languagePresets.en.overrides.agent.language).toBe('en')
   })
   it('opens by saying it is an AI, in both languages', () => {

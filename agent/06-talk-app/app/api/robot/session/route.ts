@@ -1,5 +1,5 @@
 import { elevenlabs } from '@/lib/eleven'
-import { agentId, hasApiKey, json } from '@/lib/server'
+import { agentId, hasApiKey, json, setting } from '@/lib/server'
 import { robotFromRequest } from '@/lib/robot-auth'
 
 export const dynamic = 'force-dynamic'
@@ -17,7 +17,8 @@ export async function POST(req: Request) {
   if (!hasApiKey()) return json({ error: 'ELEVENLABS_API_KEY is missing on the server.' }, 503)
   try {
     const { signedUrl } = await elevenlabs().conversationalAi.conversations.getSignedUrl({ agentId: id })
-    return json({ signedUrl, agentId: id })
+    const start = setting('HALA_PROC_START_ROBOT') ?? ''
+    return json({ signedUrl, agentId: id, startProcedureIds: start ? start.split(',') : [] })
   } catch (e) {
     console.error('robot session error', (e as Error).message)
     return json({ error: 'Could not open a conversation with ElevenLabs.' }, 502)

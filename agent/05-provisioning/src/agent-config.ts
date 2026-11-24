@@ -21,6 +21,18 @@ export interface AgentConfigOptions {
   services?: Service[]
   /** Sampling temperature: low, because this agent must not improvise facts. */
   temperature?: number
+  /** Appended to the agent name, e.g. "(dev)", so an experiment never touches the live agent. */
+  nameSuffix?: string
+  /** Keep the full service sheet in the prompt (default). False: only an index; details come from the knowledge base. */
+  sheet?: boolean
+  /** Lean prompt: flows live in procedures (synced separately), so the base prompt is short. */
+  lean?: boolean
+  /** Knowledge base documents to attach (retrieval on demand). */
+  knowledge?: { id: string; name: string }[]
+  /** Pronunciation dictionary to apply to everything the agent says. */
+  pronunciation?: { pronunciationDictionaryId: string; versionId?: string }
+  /** 'v3' = expressive (audio tags, richer voice). 'flash' = fastest. */
+  voiceModel?: 'v3' | 'flash'
   /** Thinking effort for reasoning models. Lower is faster. Leave unset to use the model's default. */
   reasoningEffort?: ElevenLabs.LlmReasoningEffort
 }
@@ -34,6 +46,17 @@ export const DEFAULT_LLM: ElevenLabs.Llm = 'gemini-3.5-flash' // measured: about
  * multilingual model is used for both languages, and English is added as a language preset.
  */
 export const BASE_LANGUAGE = 'ar'
+/** Expressive conversational voice model: understands audio tags such as [warmly] and speaks Arabic and English. */
+export const V3_MODEL: ElevenLabs.TtsConversationalModel = 'eleven_v3_conversational'
+/** A few tags only. Too many make a receptionist sound like an actor. The agent is told to use at most one per reply. */
+export const AUDIO_TAGS: { tag: string; description: string }[] = [
+  { tag: '[warmly]', description: 'a warm, welcoming greeting or thanks' },
+  { tag: '[reassuring]', description: 'calming an upset or worried caller' },
+  { tag: '[cheerfully]', description: 'good news, a confirmed booking' },
+  { tag: '[thoughtful]', description: 'checking something or considering a question' },
+  { tag: '[apologetic]', description: 'a mistake, a delay, or something that cannot be done' },
+  { tag: '[softly]', description: 'sensitive moments' }
+]
 export const TTS_MODEL: ElevenLabs.TtsConversationalModel = 'eleven_flash_v2_5'
 
 export const agentName = (channel: Channel = 'web') => (channel === 'robot' ? 'HALA Concierge (robot)' : 'HALA Concierge')
@@ -83,6 +106,7 @@ export function buildAgentConfig(o: AgentConfigOptions) {
   const channel = o.channel ?? 'web'
   const services = o.services ?? SERVICES
   const robot = channel === 'robot'
+  const expressive = (o.voiceModel ?? 'v3') === 'v3'
 
   const prompt = buildSystemPrompt({
     services,
@@ -90,8 +114,12 @@ export function buildAgentConfig(o: AgentConfigOptions) {
     tools: {
       findService: TOOL_NAMES.findService, listSlots: TOOL_NAMES.listSlots, book: TOOL_NAMES.book,
       reschedule: TOOL_NAMES.reschedule, cancel: TOOL_NAMES.cancel, logRequest: TOOL_NAMES.logRequest,
-      lookupFact: TOOL_NAMES.lookupFact, handover: TOOL_NAMES.handover
-    }
+      lookupFact: TOOL_NAMES.lookupFact, handover: TOOL_NAMES.handover,
+      checkBooking: TOOL_NAMES.checkBooking, checkRequest: TOOL_NAMES.checkRequest, serviceProcess: TOOL_NAMES.serviceProcess
+    },
+    lean: o.lean,
+    sheet: o.sheet,
+    knowledgeBase: Boolean(o.knowledge?.length)
   })
 
   const conversationConfig = {
@@ -104,6 +132,11 @@ export function buildAgentConfig(o: AgentConfigOptions) {
         temperature: o.temperature ?? 0.3,
         // Spoken answers are short. A hard cap also stops a model from rambling and keeps time-to-last-word low.
         maxTokens: 300,
+        ...(o.knowledge?.length ? {
+          knowledgeBase: o.knowledge.map((k) => ({ type: 'text' as const, name: k.name, id: k.id, usageMode: 'auto' as const })),
+          // multilingual embeddings: callers ask in Arabic and the documents are English
+          rag: { enabled: true, embeddingModel: 'multilingual_e5_large_instruct' as const, maxRetrievedRagChunksCount: 4, maxDocumentsLength: 6000 }
+        } : {}),
         ...(o.reasoningEffort ? { reasoningEffort: o.reasoningEffort } : {}),
         timezone: 'Asia/Dubai',
         tools: TOOL_SPECS.map((s) => toWebhookTool(s, o.publicBaseUrl, o.toolSecret)),
@@ -114,9 +147,11 @@ export function buildAgentConfig(o: AgentConfigOptions) {
       }
     },
     tts: {
-      modelId: TTS_MODEL,
+      modelId: expressive ? V3_MODEL : TTS_MODEL,
       voiceId: o.voiceId ?? DEFAULT_VOICE_ID,
       stability: 0.55, similarityBoost: 0.8, speed: 1,
+      ...(expressive ? { expressiveMode: true, suggestedAudioTags: AUDIO_TAGS } : {}),
+      ...(o.pronunciation ? { pronunciationDictionaryLocators: [o.pronunciation] } : {}),
       ...(robot ? { agentOutputAudioFormat: 'pcm_16000' as const } : {})
     },
     asr: {
@@ -150,7 +185,7 @@ export function buildAgentConfig(o: AgentConfigOptions) {
     // Private agent: the browser needs a short-lived token from /api/token.
     auth: { enableAuth: true },
     // The talk page may pick a language and send text-only sessions (used by the live evals).
-    overrides: { conversationConfigOverride: { conversation: { textOnly: true }, agent: { language: true, firstMessage: true } } },
+    overrides: { enableProcedureIdsFromClient: true, conversationConfigOverride: { conversation: { textOnly: true }, agent: { language: true, firstMessage: true } } },
     evaluation: { criteria: EVALUATION_CRITERIA },
     dataCollection: {
       service_discussed: { type: 'string' as const, description: 'The id of the DSO service the caller needed, or "none".' },
@@ -160,7 +195,7 @@ export function buildAgentConfig(o: AgentConfigOptions) {
   }
 
   return {
-    name: agentName(channel),
+    name: o.nameSuffix ? `${agentName(channel)} ${o.nameSuffix}` : agentName(channel),
     tags: ['hala', `channel:${channel}`],
     conversationConfig,
     platformSettings

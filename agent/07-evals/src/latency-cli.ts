@@ -16,11 +16,14 @@ const opt = (n: string) => { const i = args.indexOf(`--${n}`); return i >= 0 ? a
 const env = readHalaEnv()
 const get = (k: string) => process.env[k] ?? env.get(k)
 
+const ONLY_AGENTS = opt('agents') // label=agentId,label=agentId : measure existing agents instead of creating temporary ones
 const LLMS = (opt('llm') ?? 'gemini-3.8-flash,gemini-3.1-flash-lite,gemini-3.5-flash,claude-haiku-5-5').split(',')
 const PROBES: Record<string, string> = {
   hello: 'Hello',
   docs: 'What documents do I need to renew an employee visa?',
   fee: 'How much does a no objection certificate cost?',
+  kb: 'How far is Dubai Silicon Oasis from the airport?',
+  dtec: 'Which desk types does Dtec offer?',
   ar: 'ما هي المستندات المطلوبة لبطاقة الدخول؟',
   book: 'Please book a no objection certificate for tomorrow at ten thirty. My name is Latency Test and my number is 0500000000. Yes, go ahead and book it.'
 }
@@ -80,9 +83,12 @@ const table: string[] = ['| model | probe | first reply | whole answer | tools (
 const summary: Record<string, number[]> = {}
 
 try {
-  for (const llm of LLMS) {
+  const targets: { label: string; id?: string }[] = ONLY_AGENTS ? ONLY_AGENTS.split(',').map((x) => ({ label: x.split('=')[0]!, id: x.split('=')[1] })) : LLMS.map((l) => ({ label: l }))
+  for (const t of targets) {
+    const llm = t.label
     let agentId: string
-    try {
+    if (t.id) agentId = t.id
+    else try {
       const config = buildAgentConfig({ channel: 'web', publicBaseUrl: base, toolSecret: secret, llm: llm as never })
       agentId = (await client.conversationalAi.agents.create({ ...config, name: `HALA latency test (${llm})` } as never)).agentId
       created.push(agentId)

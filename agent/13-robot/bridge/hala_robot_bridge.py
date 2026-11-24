@@ -36,6 +36,7 @@ Movement stays with MangoBot: this program never publishes to a motion topic. It
 
 import array
 import base64
+import re
 import json
 import math
 import os
@@ -439,7 +440,7 @@ class Bridge:
         elif t == "user_transcript":
             self.log("user", ev["user_transcription_event"]["user_transcript"])
         elif t == "agent_response":
-            self.log("agent", ev["agent_response_event"]["agent_response"])
+            self.log("agent", re.sub(r"\s*\[[^\]]{1,30}\]\s*", " ", ev["agent_response_event"]["agent_response"]).strip())
         elif t in ("agent_tool_request", "agent_tool_response"):
             try:
                 body = ev.get(t) or {}
@@ -464,6 +465,7 @@ class Bridge:
                     self.log("info" if self.focus else "warn", "speaker focus: " + ("yes" if self.focus else "NO (ask MangoBot to check the agent module)"))
                 s = self.net.request("/api/robot/session", {})
                 url = s["signedUrl"]
+                self.start_procedures = s.get("startProcedureIds") or []
                 self.ws = websocket.WebSocketApp(
                     url,
                     on_open=lambda ws: self.on_open(ws),
@@ -486,7 +488,10 @@ class Bridge:
     def on_open(self, ws):
         self.connected = True
         self.last_error = ""
-        self.ws_send({"type": "conversation_initiation_client_data"})
+        init = {"type": "conversation_initiation_client_data"}
+        if getattr(self, "start_procedures", None):
+            init["start_procedure_ids"] = self.start_procedures  # the booking flow is ready from the first word
+        self.ws_send(init)
 
     def on_close(self, code, msg):
         self.connected = False

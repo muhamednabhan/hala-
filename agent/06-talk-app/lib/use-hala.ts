@@ -73,10 +73,10 @@ export function useHala() {
       // The microphone must be requested inside the click handler (browser rule).
       await navigator.mediaDevices.getUserMedia({ audio: true })
       const res = await fetch('/api/token?channel=web', { cache: 'no-store' })
-      const body = (await res.json()) as { token?: string; error?: string }
+      const body = (await res.json()) as { token?: string; error?: string; startProcedureIds?: string[] }
       if (!res.ok || !body.token) throw new Error(body.error ?? `Token request failed (${res.status})`)
       setLines([]); setEvents([]); setConversationId(undefined)
-      conversation.startSession({ conversationToken: body.token, connectionType: 'webrtc', overrides: overridesFor(pref) } as never)
+      conversation.startSession({ conversationToken: body.token, connectionType: 'webrtc', overrides: overridesFor(pref), stripAudioTags: true, ...(body.startProcedureIds?.length ? { startProcedureIds: body.startProcedureIds } : {}) } as never)
     } catch (e) {
       setError(describe(e))
     } finally {
