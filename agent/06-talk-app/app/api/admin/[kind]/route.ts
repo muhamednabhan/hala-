@@ -7,9 +7,9 @@ export const dynamic = 'force-dynamic'
  * Read-only feed for teammate B's dashboard until it talks to Supabase directly.
  */
 export async function GET(req: Request, ctx: { params: Promise<{ kind: string }> }) {
-  if (!isAdmin(req)) return json({ error: 'unauthorized' }, 401)
+  if (!(await isAdmin(req))) return json({ error: 'unauthorized' }, 401)
   const { kind } = await ctx.params
-  const { stores } = hala()
+  const { stores } = await hala()
   switch (kind) {
     case 'bookings': return json([...(await stores.bookings.list())].reverse())
     case 'handovers': return json([...(await stores.handovers.list())].reverse())

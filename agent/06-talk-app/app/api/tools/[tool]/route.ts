@@ -6,6 +6,6 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request, ctx: { params: Promise<{ tool: string }> }) {
   const { tool } = await ctx.params
   const body = await req.json().catch(() => ({}))
-  const res = await hala().api.handle(tool, req.headers, body)
+  const res = await (await hala()).api.handle(tool, req.headers, body)
   return json(res.body, res.status)
 }

@@ -15,6 +15,7 @@ Teammate A owns Supabase, teammate B owns the admin dashboard. This folder is ev
 | `05-provisioning` | `feature/05-provisioning` | Builds the ElevenLabs agent config from code and syncs it (create or update in place) |
 | `06-talk-app` | `feature/06-talk-app` | Next.js app: talk page, `/api/token`, `/api/research`, `/api/tools/*`, `/api/events`, `/api/admin/*` |
 | `07-evals` | `feature/07-evals` | Offline evals and a live text-mode harness |
+| `09-supabase` | `feature/09-supabase` | Supabase adapter for the storage ports, plus the SQL migration |
 
 ## How it fits together
 
@@ -28,7 +29,7 @@ Teammate A owns Supabase, teammate B owns the admin dashboard. This folder is ev
                                           │      └─► 03-booking  (calendar)
                                           ▼
                               Stores (ports from 01-core)
-                    today: JSON file  ·  later: Supabase (teammate A)
+                    JSON file, or Supabase when its hala_* tables exist
                                           │
                               events ─► /api/events (SSE) ─► live screen, admin dashboard
 ```
@@ -75,7 +76,7 @@ The research call should answer `found:false` (no bus-route fact is in the brief
 | File | Holds | Written by |
 |---|---|---|
 | `.env.local` | `ELEVENLABS_API_KEY` | ElevenLabs onboarding |
-| `.env.hala` | `HALA_TOOL_SECRET`, `HALA_ADMIN_KEY`, `PUBLIC_BASE_URL`, `HALA_AGENT_ID`, `HALA_AGENT_ID_ROBOT`, `HALA_VOICE_ID` | `agent:sync` and the app |
+| `.env.hala` | `HALA_TOOL_SECRET`, `HALA_ADMIN_KEY`, `PUBLIC_BASE_URL`, `HALA_AGENT_ID`, `HALA_AGENT_ID_ROBOT`, `HALA_VOICE_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | `agent:sync` and the app |
 | `.data/hala-store.json` | bookings, requests, handovers, events | the app |
 
 ## Rules the agent follows (what the judges mark)
@@ -100,6 +101,6 @@ The research call should answer `found:false` (no bus-route fact is in the brief
 ## Known limits
 
 - Fees and times are demonstration values by design. Document lists are also demo content.
-- The calendar is one desk (capacity 1) and in-memory/JSON, not Supabase yet.
+- The calendar is one desk (capacity 1). Storage is the JSON file until the SQL in `09-supabase/migrations` is run in Supabase.
 - Not yet verified against the live ElevenLabs API until the key is connected and testing is approved.
 - The robot needs the PCM 16 kHz agent (`--channel robot`) and the bridge from the Team Guide. See `handover.md` phase 1.

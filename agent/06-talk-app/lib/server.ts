@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js'
 import { createStores } from '@hala/booking'
+import type { Stores } from '@hala/core'
+import { createSupabaseStores, supabaseReady } from '@hala/supabase'
 import { createToolApi, type ToolApi } from '@hala/tools-api'
 import { HALA_ENV_FILE, ensureToolSecret, readHalaEnv, setHalaVar } from '@hala/provisioning'
 
@@ -12,8 +14,8 @@ import { HALA_ENV_FILE, ensureToolSecret, readHalaEnv, setHalaVar } from '@hala/
  * hot-reload resets module state: without this, /api/tools and /api/events would see different
  * bookings. Persisted to .data/hala-store.json so a restart keeps bookings and handovers.
  */
-interface Hala { api: ToolApi; stores: ReturnType<typeof createStores>; adminKey: string }
-const g = globalThis as unknown as { __hala?: Hala; __halaEleven?: ElevenLabsClient }
+interface Hala { api: ToolApi; stores: Stores; adminKey: string; storeKind: 'supabase' | 'file'; storeNote?: string }
+const g = globalThis as unknown as { __hala?: Promise<Hala>; __halaEleven?: ElevenLabsClient }
 
 // The whole project must not be traced into the server bundle: the data and env paths are runtime-only.
 const repoRoot = resolve(/*turbopackIgnore: true*/ process.cwd(), '..', '..')
@@ -36,13 +38,32 @@ function adminKey(): string {
   return fresh
 }
 
-export function hala(): Hala {
-  if (!g.__hala) {
-    const stores = createStores({ file: resolve(/*turbopackIgnore: true*/ repoRoot, '.data', 'hala-store.json') })
-    g.__hala = { stores, api: createToolApi({ stores, secret: ensureToolSecret(process.env, halaFile()) }), adminKey: adminKey() }
+/**
+ * Supabase when it is configured and the hala_* tables exist; otherwise the local JSON file, with the reason
+ * kept in `storeNote` (shown by /api/health). Never fails the app because a database is missing.
+ */
+async function build(): Promise<Hala> {
+  const url = setting('SUPABASE_URL')
+  const serviceKey = setting('SUPABASE_SERVICE_KEY')
+  let stores: Stores
+  let storeKind: Hala['storeKind'] = 'file'
+  let storeNote: string | undefined
+  if (setting('HALA_STORE') === 'file') {
+    storeNote = 'HALA_STORE=file'
+  } else if (url && serviceKey) {
+    const ready = await supabaseReady({ url, serviceKey })
+    if (ready.ok) storeKind = 'supabase'
+    else storeNote = `Supabase not used: ${ready.reason}`
+  } else {
+    storeNote = 'Supabase is not configured'
   }
-  return g.__hala
+  if (storeKind === 'supabase') stores = createSupabaseStores({ url: url!, serviceKey: serviceKey! })
+  else stores = createStores({ file: resolve(/*turbopackIgnore: true*/ repoRoot, '.data', 'hala-store.json') })
+  if (storeNote) console.warn(`hala: using the local file store. ${storeNote}`)
+  return { stores, storeKind, storeNote, api: createToolApi({ stores, secret: ensureToolSecret(process.env, halaFile()) }), adminKey: adminKey() }
 }
+
+export const hala = (): Promise<Hala> => (g.__hala ??= build())
 
 /** Server-side only. The API key never reaches the browser. */
 export function elevenlabs(): ElevenLabsClient {
@@ -61,8 +82,8 @@ export const json = (body: unknown, status = 200, headers: Record<string, string
   Response.json(body, { status, headers: { 'cache-control': 'no-store', ...headers } })
 
 /** Admin check for the dashboard endpoints. */
-export function isAdmin(req: Request): boolean {
+export async function isAdmin(req: Request): Promise<boolean> {
   const given = req.headers.get('x-hala-admin-key') ?? new URL(req.url).searchParams.get('key') ?? ''
-  const key = hala().adminKey
+  const key = (await hala()).adminKey
   return given.length === key.length && given === key
 }

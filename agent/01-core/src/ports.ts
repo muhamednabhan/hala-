@@ -59,3 +59,14 @@ export interface Clock {
 }
 
 export const systemClock: Clock = { now: () => new Date() }
+
+/**
+ * Thrown by a BookingRepo when the database itself refuses a write because the slot is already taken
+ * (for Supabase: the partial unique index on date+time). The calendar turns it into a "taken" answer.
+ */
+export class SlotConflictError extends Error {
+  constructor(message = 'slot already booked') {
+    super(message)
+    this.name = 'SlotConflictError'
+  }
+}

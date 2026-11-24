@@ -8,9 +8,9 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(req: Request) {
   const conversationId = new URL(req.url).searchParams.get('conversation_id') ?? undefined
-  if (!conversationId && !isAdmin(req)) return new Response('conversation_id or admin key required', { status: 401 })
+  if (!conversationId && !(await isAdmin(req))) return new Response('conversation_id or admin key required', { status: 401 })
 
-  const { stores } = hala()
+  const { stores } = await hala()
   const enc = new TextEncoder()
   let off: (() => void) | undefined
   let beat: ReturnType<typeof setInterval> | undefined
