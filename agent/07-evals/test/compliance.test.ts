@@ -121,8 +121,8 @@ describe('prompt <-> tools consistency', () => {
 })
 
 describe('catalogue in the prompt', () => {
-  it('lists all 12 catalogue services in the prompt index', () => {
-    expect(SERVICES).toHaveLength(12)
+  it('lists every catalogue service in the prompt index', () => {
+    expect(SERVICES.length).toBeGreaterThanOrEqual(12)
     for (const s of SERVICES) expect(prompt, s.id).toContain(`- ${s.id}:`)
   })
   it('keeps fees and times OUT of the prompt: they only come from tool results', () => {

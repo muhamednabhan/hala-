@@ -73,7 +73,7 @@ describe('language switch mid-conversation', () => {
     expect(en.services[0].id).toBe('access_card')
     expect(ar.services[0].id).toBe('access_card')
     // both languages are present in every result so the agent can answer in whichever the caller uses
-    expect(ar.services[0].name).toEqual({ en: 'Access / staff ID card', ar: 'بطاقة الدخول' })
+    expect(ar.services[0].name).toEqual({ en: 'Access / ID card', ar: 'بطاقة الدخول' })
     expect(ar.services[0].demo_fee_aed).toBeGreaterThan(0)
 
     const booked = await h.call('book_appointment', { service_id: 'access_card', attendee_name: 'Sara Test', contact: PHONE, date: '2026-11-26', time: '11:00', language: 'ar' }, 'conv_switch')
@@ -147,7 +147,7 @@ describe('handover', () => {
     expect((await h.call('find_service', { query: 'This fee is ridiculous, I want to talk to someone.' })).found).toBe(false)
     const r = await h.call('handover_to_human', { reason: 'fee_dispute', summary: 'Caller says the access card fee is too high and wants a person.', language: 'en' })
     expect(r.ok).toBe(true)
-    expect(r.instruction).toMatch(/Do not promise a callback time, a refund or an outcome/)
+    expect(r.instruction).toMatch(/Do not promise a callback time, a refund, a waiver or an outcome/)
     expect(await h.stores.handovers.list()).toHaveLength(1)
     expect((await h.stores.handovers.list())[0]).toMatchObject({ reason: 'fee_dispute', status: 'open', language: 'en' })
     expect(await h.stores.requests.list()).toHaveLength(0)
@@ -220,7 +220,7 @@ describe('facts: grounded answers only', () => {
     const h = createHarness()
     const en = await h.call('lookup_fact', { question: 'Where is the e-wallet deposit machine?' })
     expect(en).toMatchObject({ ok: true, found: true })
-    expect(en.answer.en).toMatch(/24-hour e-wallet deposit machine in the DSO HQ building/)
+    expect(en.answer.en).toMatch(/24-hour e-wallet deposit machine in the lobby of the DSO HQ building/)
     const ar = await h.call('lookup_fact', { question: 'وين جهاز إيداع المحفظة' })
     expect(ar.found).toBe(true)
     expect(ar.answer.ar).toMatch(/مبنى مقر/)
