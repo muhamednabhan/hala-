@@ -35,12 +35,36 @@ export function normalizeArabic(text: string): string {
     .replace(/ئ/g, 'ي') // hamza on ya -> ya
 }
 
-/** Strip the definite article and common clitics so "بالتأشيرة" and "تأشيرة" share a stem. */
+/**
+ * Spoken Arabic uses verbs ("أجدد", "ألغي", "نضيف") where written keywords use nouns ("تجديد",
+ * "إلغاء", "إضافة"). Map the common action forms onto one canonical token so both match.
+ * Keys are post-normalisation stems (see normalizeArabic + stemArabic).
+ */
+const ARABIC_ACTIONS: Record<string, string[]> = {
+  تجديد: ['جدد', 'اجدد', 'نجدد', 'يجدد', 'تجدد', 'مجدد', 'تجديد'],
+  غاء: ['غي', 'نلغي', 'يلغي', 'تلغي', 'الغي', 'غاء', 'الغاء'],
+  تعديل: ['عدل', 'اعدل', 'نعدل', 'يعدل', 'تعدل', 'تعديل'],
+  اضافه: ['اضيف', 'نضيف', 'يضيف', 'تضيف', 'ضيف', 'اضافه', 'اضافة'],
+  تغيير: ['غير', 'اغير', 'نغير', 'يغير', 'تغير', 'تغيير'],
+  انتهاء: ['انتهت', 'تنتهي', 'ينتهي', 'انتهي', 'منتهيه', 'منتهي', 'انتهاء', 'خلصت', 'تخلص'],
+  توظيف: ['نوظف', 'اوظف', 'يوظف', 'توظيف', 'وظف']
+}
+const ARABIC_CANON = new Map<string, string>(
+  Object.entries(ARABIC_ACTIONS).flatMap(([canon, forms]) => forms.map((f) => [f, canon] as const))
+)
+
+/** Strip the definite article, glued prepositions and pronoun endings so word forms share a stem. */
 function stemArabic(token: string): string {
   let t = token
   t = t.replace(/^(وال|بال|كال|فال|لل|ال)/, '')
   if (t.length > 4 && /^و/.test(t)) t = t.slice(1)
-  return t
+  // Single-letter prepositions glued to the word: "لتجديد" (for renewal), "برخصة" (with a licence).
+  if (t.length >= 6 && /^[بلكف]/.test(t)) t = t.slice(1)
+  // Pronoun endings: "تجديدها" (renewing it) -> "تجديد".
+  if (t.length >= 6 && /(ها|هم|هن)$/.test(t)) t = t.slice(0, -2)
+  // Feminine noun + possessive: "تأشيرتي" (my visa), "رخصتنا" (our licence) -> ta marbuta form.
+  if (t.length >= 6) t = t.replace(/ت(ي|ك|نا)$/, 'ه')
+  return ARABIC_CANON.get(t) ?? t
 }
 
 function stemEnglish(token: string): string {
