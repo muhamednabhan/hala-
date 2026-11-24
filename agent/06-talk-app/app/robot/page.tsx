@@ -1,8 +1,6 @@
-import type { Metadata } from 'next'
-import RobotConsole from '@/components/RobotConsole'
+import { redirect } from 'next/navigation'
 
-export const metadata: Metadata = { title: 'HALA · Robot control' }
-
+/** The robot console is a view of the single page. Old links land there. */
 export default function Page() {
-  return <RobotConsole />
+  redirect('/#robot')
 }

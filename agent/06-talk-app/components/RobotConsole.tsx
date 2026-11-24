@@ -3,11 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { HalaEvent, RobotCommand, RobotLog } from '@hala/core'
 import type { RobotView } from '@hala/robot'
 import { setupCommands } from '@hala/robot/setup'
+import { Link } from './Brand'
 import { EventCard } from './EventCard'
 
 const KEY = 'hala-admin-key'
 type Detail = { robot: RobotView; logs: RobotLog[]; commands: RobotCommand[] }
 type Form = { name: string; notes: string; ip: string; domainId: string; aimdkPath: string; micStream: string; halfDuplex: boolean; volume: string }
+type Tab = 'connect' | 'settings' | 'log' | 'activity'
 const BLANK: Form = { name: '', notes: '', ip: '', domainId: '', aimdkPath: '', micStream: '0', halfDuplex: false, volume: '' }
 
 const toForm = (r: RobotView): Form => ({
@@ -24,18 +26,18 @@ const PHASES: Record<string, string> = {
 
 /** The engineer's one-time job, from the AimDK docs and the starter bridge. Ticks are remembered in this browser. */
 const CHECKLIST = [
-  'Robot is an X2 Ultra (the voice module is not on the EDU) and is powered on.',
-  'MangoBot has switched it to voice-only mode (run mode "only_voice") and restarted its agent module, so the built-in assistant no longer owns the mic and speaker.',
-  'The development computer (PC2) has internet access. Check: curl -I this site from inside the container.',
-  'You know the AimDK workspace path (ask MangoBot) and it is entered below.',
+  'X2 Ultra (the EDU has no voice module), powered on.',
+  'MangoBot set voice-only mode (run mode "only_voice") and restarted the agent module.',
+  'PC2 has internet. Test: curl -I this site from the container.',
+  'AimDK workspace path known and entered in Settings.',
   'You are in the MangoBot container on PC2. Never PC1.'
 ]
 
-function Pill({ tone, children }: { tone: 'ok' | 'warn' | 'bad' | 'idle'; children: React.ReactNode }) {
-  return <span className={`pill ${tone === 'idle' ? '' : `pill-${tone}`}`}><i />{children}</span>
+function Status({ tone, children }: { tone: 'ok' | 'warn' | 'bad' | 'idle'; children: React.ReactNode }) {
+  return <span className={`chip chip-${tone}`}>{children}</span>
 }
 
-export default function RobotConsole() {
+export default function RobotConsole({ active }: { active: boolean }) {
   const [key, setKey] = useState('')
   const [keyInput, setKeyInput] = useState('')
   const [robots, setRobots] = useState<RobotView[]>([])
@@ -44,6 +46,7 @@ export default function RobotConsole() {
   const [detail, setDetail] = useState<Detail>()
   const [form, setForm] = useState<Form>(BLANK)
   const [adding, setAdding] = useState(false)
+  const [tab, setTab] = useState<Tab>('connect')
   const [token, setToken] = useState<{ id: string; value: string }>()
   const [message, setMessage] = useState<string>()
   const [say, setSay] = useState('Hello, I am HALA, an AI assistant. I am testing my speaker.')
@@ -66,18 +69,18 @@ export default function RobotConsole() {
   }, [])
 
   const loadList = useCallback(async () => {
-    if (!key) return
+    if (!key || !active) return
     try {
       const body = await api('/api/robots') as { robots: RobotView[]; note?: string }
       setRobots(body.robots); setNote(body.note)
       setSelected((cur) => cur ?? body.robots[0]?.id)
     } catch (e) { setMessage((e as Error).message) }
-  }, [api, key])
+  }, [api, key, active])
 
   const loadDetail = useCallback(async () => {
-    if (!key || !selected) return
+    if (!key || !selected || !active) return
     try { setDetail(await api(`/api/robots/${selected}`) as Detail) } catch { /* shown by the list loader */ }
-  }, [api, key, selected])
+  }, [api, key, selected, active])
 
   useEffect(() => { void loadList() }, [loadList])
   useEffect(() => {
@@ -86,13 +89,13 @@ export default function RobotConsole() {
     return () => clearInterval(t)
   }, [loadDetail])
   useEffect(() => { if (detail && !adding) setForm(toForm(detail.robot)) }, [detail?.robot.id, adding]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { logEnd.current?.scrollIntoView({ block: 'end' }) }, [detail?.logs.length])
+  useEffect(() => { if (tab === 'log') logEnd.current?.scrollIntoView({ block: 'end' }) }, [detail?.logs.length, tab])
 
-  // What HALA did during the robot's current conversation, using the same feed as the Talk page.
+  // What HALA did during the robot's current conversation, using the same feed as the Talk view.
   const conversationId = detail?.robot.state?.conversationId
   useEffect(() => {
     setEvents([])
-    if (!conversationId) return
+    if (!conversationId || !active) return
     let after = ''
     const tick = async () => {
       const res = await fetch(`/api/events?poll=1&conversation_id=${encodeURIComponent(conversationId)}&after=${encodeURIComponent(after)}`, { cache: 'no-store' })
@@ -103,7 +106,7 @@ export default function RobotConsole() {
     void tick()
     const t = setInterval(() => { void tick() }, 1500)
     return () => clearInterval(t)
-  }, [conversationId])
+  }, [conversationId, active])
 
   const act = async (label: string, fn: () => Promise<unknown>) => {
     setMessage(undefined)
@@ -115,14 +118,18 @@ export default function RobotConsole() {
   const command = useMemo(() => robot ? setupCommands(robot, base, token?.id === robot.id ? token.value : 'hbr_<new token>') : '', [robot, base, token])
   const status = robot?.status
   const st = robot?.state
-  const tone = status === 'online' ? 'ok' : status === 'offline' ? 'bad' : 'idle'
+  const online = status === 'online'
+  const tone = online ? 'ok' : status === 'offline' ? 'bad' : 'idle'
+  const stepNow = !robot ? -1 : !online ? (robot.lastSeen ? 0 : -1) : st?.phase === 'conversation' ? 3 : st?.phase === 'connecting' || robot.desired === 'running' ? 2 : 1
+  const send = (body: object) => api(`/api/robots/${robot!.id}/commands`, { method: 'POST', body: JSON.stringify(body) })
 
   if (!key) {
     return (
-      <main className="page robot">
-        <section className="card" style={{ maxWidth: 480 }}>
-          <h1>Robot control</h1>
-          <p className="lede">Enter the access key to manage robots. It is the HALA_ADMIN_KEY setting of this site.</p>
+      <div className="gate">
+        <section className="card" style={{ maxWidth: 440 }}>
+          <p className="eyebrow">Robot control</p>
+          <h1>Enter the access key</h1>
+          <p className="lede">It is the HALA_ADMIN_KEY setting of this site. It stays in this browser tab.</p>
           <form onSubmit={(e) => { e.preventDefault(); try { sessionStorage.setItem(KEY, keyInput) } catch { /* private mode */ } setKey(keyInput) }} style={{ marginTop: 16 }}>
             <div className="field">
               <label htmlFor="key">Access key</label>
@@ -132,7 +139,7 @@ export default function RobotConsole() {
           </form>
           {message && <p className="notice notice-bad" role="alert" style={{ marginTop: 12 }}>{message}</p>}
         </section>
-      </main>
+      </div>
     )
   }
 
@@ -143,177 +150,187 @@ export default function RobotConsole() {
         <div className="field"><label htmlFor="ip">Robot IP (reference)</label><input id="ip" className="input" value={form.ip} onChange={(e) => setForm({ ...form, ip: e.target.value })} placeholder="10.0.1.41" /></div>
         <div className="field"><label htmlFor="dom">ROS domain id</label><input id="dom" className="input" inputMode="numeric" value={form.domainId} onChange={(e) => setForm({ ...form, domainId: e.target.value })} placeholder="optional" /></div>
       </div>
-      <div className="field" style={{ marginTop: 14 }}><label htmlFor="aim">AimDK workspace path</label><input id="aim" className="input" value={form.aimdkPath} onChange={(e) => setForm({ ...form, aimdkPath: e.target.value })} placeholder="~/aimdk" /><small>Ask MangoBot. The setup command sources <code>&lt;path&gt;/install/setup.bash</code>.</small></div>
+      <div className="field"><label htmlFor="aim">AimDK workspace path</label><input id="aim" className="input" value={form.aimdkPath} onChange={(e) => setForm({ ...form, aimdkPath: e.target.value })} placeholder="~/aimdk" /></div>
       <div className="row">
         <div className="field"><label htmlFor="mic">Microphone</label>
           <select id="mic" className="input" value={form.micStream} onChange={(e) => setForm({ ...form, micStream: e.target.value })}>
             <option value="0">Automatic (first to speak)</option><option value="1">Built-in</option><option value="2">External</option>
           </select></div>
-        <div className="field"><label htmlFor="vol">Speaker volume</label><input id="vol" className="input" inputMode="numeric" value={form.volume} onChange={(e) => setForm({ ...form, volume: e.target.value })} placeholder="0-100, optional" /></div>
+        <div className="field"><label htmlFor="vol">Volume (0-100)</label><input id="vol" className="input" inputMode="numeric" value={form.volume} onChange={(e) => setForm({ ...form, volume: e.target.value })} placeholder="optional" /></div>
       </div>
-      <div className="field" style={{ marginTop: 14 }}>
-        <label><input type="checkbox" checked={form.halfDuplex} onChange={(e) => setForm({ ...form, halfDuplex: e.target.checked })} /> Mute the microphone while the robot speaks</label>
-        <small>Turn this on if the robot hears itself and interrupts its own answers.</small>
+      <div className="field">
+        <label className="check-row"><input type="checkbox" checked={form.halfDuplex} onChange={(e) => setForm({ ...form, halfDuplex: e.target.checked })} /> Mute the microphone while the robot speaks</label>
+        <small>Turn on if the robot hears itself and interrupts its own answers.</small>
       </div>
       <div className="field"><label htmlFor="notes">Notes</label><textarea id="notes" className="input" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
     </>
   )
 
+  const lastCmd = detail?.commands[detail.commands.length - 1]
+
   return (
-    <main className="page robot">
-      <div className="robot-head">
-        <div>
-          <h1>Robot control</h1>
-          <p className="lede">Add a robot, run one command on it, then start and test everything from here. The robot calls this site; nothing connects into the robot.</p>
+    <div className="robot">
+      {/* ---- column 1: robots */}
+      <section className="card list" aria-label="Robots">
+        <p className="eyebrow">Robots</p>
+        <ul className="robot-list">
+          {robots.map((r) => (
+            <li key={r.id}>
+              <button className="robot-item" aria-current={selected === r.id && !adding} onClick={() => { setSelected(r.id); setAdding(false) }}>
+                <strong>{r.name}</strong>
+                <Status tone={r.status === 'online' ? 'ok' : r.status === 'offline' ? 'bad' : 'idle'}>{r.status === 'never' ? 'Not connected' : r.status === 'online' ? 'Online' : 'Offline'}</Status>
+              </button>
+            </li>
+          ))}
+          {robots.length === 0 && <li className="hint">No robots yet.</li>}
+        </ul>
+        <div className="list-foot">
+          <button className="btn btn-ghost btn-small" onClick={() => { setAdding(true); setForm(BLANK) }}>Add a robot</button>
+          <button className="btn btn-text btn-small" onClick={() => { setKey(''); try { sessionStorage.removeItem(KEY) } catch { /* ignore */ } }}>Lock</button>
         </div>
-        <button className="btn btn-ghost btn-small" onClick={() => { setKey(''); try { sessionStorage.removeItem(KEY) } catch { /* ignore */ } }}>Lock</button>
-      </div>
-      {note && <p className="notice notice-warn" role="status" style={{ maxWidth: 'none' }}>{note}</p>}
-      {message && <p className="notice" role="status" style={{ maxWidth: 'none', background: 'var(--surface-2)' }}>{message}</p>}
+      </section>
 
-      <div className="grid-2">
-        <section className="card" aria-label="Robots">
-          <h2>Robots</h2>
-          {robots.length === 0 && !adding && <p className="empty" style={{ padding: '12px 0' }}>No robots yet.</p>}
-          <ul className="robot-list">
-            {robots.map((r) => (
-              <li key={r.id}>
-                <button className="robot-item" aria-current={selected === r.id && !adding} onClick={() => { setSelected(r.id); setAdding(false) }}>
-                  <strong>{r.name}</strong>
-                  <span><Pill tone={r.status === 'online' ? 'ok' : r.status === 'offline' ? 'bad' : 'idle'}>{r.status === 'never' ? 'Not connected yet' : r.status === 'online' ? 'Online' : 'Offline'}</Pill></span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div style={{ marginTop: 16 }}>
-            <button className="btn btn-ghost btn-small" onClick={() => { setAdding(true); setForm(BLANK) }}>Add a robot</button>
-          </div>
-        </section>
-
-        {adding ? (
-          <section className="card" aria-label="New robot">
-            <h2>New robot</h2>
-            {fields}
-            <div className="row">
-              <button className="btn btn-primary btn-small" disabled={!form.name.trim()} onClick={() => void act('Robot added. Copy the setup command below.', async () => {
-                const res = await api('/api/robots', { method: 'POST', body: JSON.stringify(toBody(form)) }) as { robot: RobotView; token: string }
-                setToken({ id: res.robot.id, value: res.token }); setSelected(res.robot.id); setAdding(false)
-              })}>Add robot</button>
-              <button className="btn btn-ghost btn-small" onClick={() => setAdding(false)}>Cancel</button>
+      {/* ---- column 2: control */}
+      <section className="card control dark" aria-label="Control">
+        {robot && !adding ? (
+          <>
+            <div className="control-head">
+              <h2>{robot.name}</h2>
+              <Status tone={tone}>{status === 'never' ? 'Not connected' : online ? 'Online' : 'Offline'}</Status>
             </div>
-          </section>
-        ) : robot && (
-          <section className="card" aria-label="Robot details">
-            <div className="row" style={{ justifyContent: 'space-between' }}>
-              <h2 style={{ margin: 0 }}>{robot.name}</h2>
-              <Pill tone={tone}>{status === 'never' ? 'Not connected yet' : status === 'online' ? 'Online' : 'Offline'}</Pill>
-            </div>
-            <p className="hint" style={{ margin: '6px 0 14px' }}>
-              {status === 'online'
+            <p className="hint">
+              {online
                 ? <>{PHASES[st?.phase ?? 'idle']}{st?.simulation ? ' · simulation' : ''}{st?.ros === false && !st?.simulation ? ' · ROS not loaded' : ''} · bridge {robot.bridgeVersion ?? '?'}</>
-                : robot.lastSeen ? `Last seen ${new Date(robot.lastSeen).toLocaleTimeString()}` : 'Run the setup command on the robot to connect it.'}
+                : robot.lastSeen ? `Last seen ${new Date(robot.lastSeen).toLocaleTimeString()}` : 'Run the setup command on the robot (Connect tab).'}
             </p>
+            <Link steps={['Paired', 'Online', 'Starting', 'Talking']} active={stepNow} label="Robot progress" />
 
-            <div className="row">
+            <div className="actions">
               {robot.desired === 'running'
-                ? <button className="btn btn-quiet" onClick={() => void act('Stopping…', () => api(`/api/robots/${robot.id}`, { method: 'PATCH', body: JSON.stringify({ desired: 'stopped' }) }))}>Stop</button>
-                : <button className="btn btn-primary" disabled={status !== 'online'} onClick={() => void act('Starting. Say the robot’s wake word once, then talk.', () => api(`/api/robots/${robot.id}`, { method: 'PATCH', body: JSON.stringify({ desired: 'running' }) }))}>Start</button>}
-              <button className="btn btn-ghost" disabled={status !== 'online'} onClick={() => void act('Beep sent to the robot.', () => api(`/api/robots/${robot.id}/commands`, { method: 'POST', body: JSON.stringify({ type: 'speaker_test' }) }))}>Speaker test</button>
-              <button className="btn btn-ghost" disabled={status !== 'online' || robot.desired !== 'running'} onClick={() => void act('Reconnecting…', () => api(`/api/robots/${robot.id}/commands`, { method: 'POST', body: JSON.stringify({ type: 'reconnect' }) }))}>Reconnect</button>
+                ? <button className="btn btn-end" onClick={() => void act('Stopping…', () => api(`/api/robots/${robot.id}`, { method: 'PATCH', body: JSON.stringify({ desired: 'stopped' }) }))}>Stop</button>
+                : <button className="btn btn-primary" disabled={!online} onClick={() => void act('Starting. Say the robot’s wake word once, then talk.', () => api(`/api/robots/${robot.id}`, { method: 'PATCH', body: JSON.stringify({ desired: 'running' }) }))}>Start</button>}
+              <button className="btn btn-ghost" disabled={!online} onClick={() => void act('Beep sent to the robot.', () => send({ type: 'speaker_test' }))}>Speaker test</button>
+              <button className="btn btn-ghost" disabled={!online || robot.desired !== 'running'} onClick={() => void act('Reconnecting…', () => send({ type: 'reconnect' }))}>Reconnect</button>
             </div>
-            {status !== 'online' && robot.desired !== 'running' && <p className="hint" style={{ marginTop: 8 }}>Start becomes available once the bridge is online.</p>}
 
-            <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 16px', margin: '18px 0 0', fontSize: '0.92rem' }}>
-              <dt className="hint">Speaker</dt><dd style={{ margin: 0 }}>{st?.speakerFocus ? 'Ready (audio focus held)' : robot.desired === 'running' ? 'No audio focus yet' : 'Idle'}</dd>
-              <dt className="hint">Microphone</dt>
-              <dd style={{ margin: 0 }}>
-                {st?.micMessages ? `${st.micMessages} chunks, last ${st.micAgeSecs ?? '?'} s ago${st.micStream ? `, stream ${st.micStream}` : ''}` : 'No audio from the robot yet'}
-                {st && !st.simulation && !st.micMessages && robot.desired === 'running' && <small className="hint"> Say the wake word. If nothing arrives, ask MangoBot to confirm voice-only mode.</small>}
-              </dd>
-              <dt className="hint">Agent audio</dt><dd style={{ margin: 0 }}>{st?.agentOutputFormat ? `${st.agentOutputFormat} out, ${st.agentInputFormat} in${st.agentOutputFormat === 'pcm_16000' && st.agentInputFormat === 'pcm_16000' ? ' ✓' : ' (should be pcm_16000)'}` : '—'}</dd>
-              {st?.lastError && <><dt className="hint">Problem</dt><dd style={{ margin: 0, color: 'var(--bad)' }}>{st.lastError}</dd></>}
+            <dl className="facts">
+              <dt>Speaker</dt><dd>{st?.speakerFocus ? 'Ready (audio focus held)' : robot.desired === 'running' ? 'No audio focus yet' : 'Idle'}</dd>
+              <dt>Microphone</dt>
+              <dd>{st?.micMessages ? `${st.micMessages} chunks, last ${st.micAgeSecs ?? '?'} s ago${st.micStream ? `, stream ${st.micStream}` : ''}` : st?.simulation ? 'Simulation: no audio' : 'No audio yet. Say the wake word.'}</dd>
+              <dt>Agent audio</dt><dd>{st?.agentOutputFormat ? `${st.agentOutputFormat} out, ${st.agentInputFormat} in${st.agentOutputFormat === 'pcm_16000' && st.agentInputFormat === 'pcm_16000' ? ' ✓' : ' (should be pcm_16000)'}` : '—'}</dd>
+              {st?.lastError && <><dt>Problem</dt><dd className="text-bad">{st.lastError}</dd></>}
+              {lastCmd && <><dt>Last test</dt><dd>{lastCmd.type} · {lastCmd.status}{lastCmd.result ? ` · ${lastCmd.result}` : ''}</dd></>}
             </dl>
 
-            <div className="field" style={{ marginTop: 20 }}>
-              <label htmlFor="say">Say a sentence (plays through the robot’s speaker)</label>
+            <div className="field">
+              <label htmlFor="say">Say a sentence through the robot</label>
               <div className="row">
-                <input id="say" className="input" style={{ flex: 1 }} value={say} onChange={(e) => setSay(e.target.value)} maxLength={300} />
-                <button className="btn btn-ghost btn-small" disabled={status !== 'online' || !say.trim()} onClick={() => void act('Sentence queued.', () => api(`/api/robots/${robot.id}/commands`, { method: 'POST', body: JSON.stringify({ type: 'say', text: say }) }))}>Say it</button>
+                <input id="say" className="input" value={say} onChange={(e) => setSay(e.target.value)} maxLength={300} />
+                <button className="btn btn-ghost btn-small" disabled={!online || !say.trim()} onClick={() => void act('Sentence queued.', () => send({ type: 'say', text: say }))}>Say it</button>
               </div>
             </div>
             <div className="field">
-              <label htmlFor="volnow">Volume now: {volume}</label>
+              <label htmlFor="volnow">Volume {volume}</label>
               <div className="row">
-                <input id="volnow" type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} style={{ flex: 1 }} />
-                <button className="btn btn-ghost btn-small" disabled={status !== 'online'} onClick={() => void act(`Volume ${volume} sent.`, () => api(`/api/robots/${robot.id}/commands`, { method: 'POST', body: JSON.stringify({ type: 'set_volume', volume }) }))}>Apply</button>
+                <input id="volnow" type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} />
+                <button className="btn btn-ghost btn-small" disabled={!online} onClick={() => void act(`Volume ${volume} sent.`, () => send({ type: 'set_volume', volume }))}>Apply</button>
               </div>
             </div>
-          </section>
+          </>
+        ) : adding ? (
+          <>
+            <p className="eyebrow">New robot</p>
+            <h2>Add a robot</h2>
+            <p className="hint">Enter what you know. Everything can be changed later. You get a pairing command next.</p>
+          </>
+        ) : (
+          <>
+            <p className="eyebrow">Robot control</p>
+            <h2>Add your first robot</h2>
+            <p className="hint">Add a robot, run one command on it, then start and test everything from here. The robot calls this site; nothing connects into the robot.</p>
+          </>
         )}
-      </div>
+      </section>
 
-      {robot && !adding && (
-        <div className="grid-2">
-          <section className="card" aria-label="Connect the robot">
-            <h2>1. Connect the robot</h2>
-            <ul className="checklist" style={{ marginBottom: 18 }}>
-              {CHECKLIST.map((c, i) => (
-                <li key={c}>
-                  <input type="checkbox" aria-label={c} checked={ticks[i]} onChange={() => { const next = ticks.map((t, j) => (j === i ? !t : t)); setTicks(next); try { localStorage.setItem('hala-checklist', JSON.stringify(next)) } catch { /* ignore */ } }} />
-                  <span>{c}</span>
-                </li>
+      {/* ---- column 3: tabs */}
+      <section className="card detail" aria-label="Details">
+        {adding ? (
+          <>
+            <div className="tabs"><span className="tab tab-on">New robot</span></div>
+            <div className="panel">
+              {fields}
+              <div className="row">
+                <button className="btn btn-primary btn-small" disabled={!form.name.trim()} onClick={() => void act('Robot added. Copy the setup command in the Connect tab.', async () => {
+                  const res = await api('/api/robots', { method: 'POST', body: JSON.stringify(toBody(form)) }) as { robot: RobotView; token: string }
+                  setToken({ id: res.robot.id, value: res.token }); setSelected(res.robot.id); setAdding(false); setTab('connect')
+                })}>Add robot</button>
+                <button className="btn btn-ghost btn-small" onClick={() => setAdding(false)}>Cancel</button>
+              </div>
+            </div>
+          </>
+        ) : robot ? (
+          <>
+            <div className="tabs" role="tablist">
+              {([['connect', 'Connect'], ['settings', 'Settings'], ['log', 'Log'], ['activity', 'What HALA did']] as [Tab, string][]).map(([id, label]) => (
+                <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? 'tab tab-on' : 'tab'} onClick={() => setTab(id)}>{label}</button>
               ))}
-            </ul>
-            <p className="hint" style={{ marginBottom: 8 }}>
-              Run this in the container on PC2.{' '}
-              {token?.id === robot.id ? 'The token below is shown once.' : 'The token was shown once when the robot was added: make a new one if you need it again.'}
-            </p>
-            <div className="code">
-              <button className="btn btn-ghost btn-small code-copy" style={{ color: '#e6efeb', borderColor: '#4a5a55' }} onClick={() => { void navigator.clipboard?.writeText(command); setMessage('Copied.') }}>Copy</button>
-              {command}
             </div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn btn-ghost btn-small" onClick={() => void act('New token made. The old one stopped working.', async () => { const r = await api(`/api/robots/${robot.id}/token`, { method: 'POST' }) as { token: string }; setToken({ id: robot.id, value: r.token }) })}>Make a new token</button>
-            </div>
-          </section>
-
-          <section className="card" aria-label="Robot settings">
-            <h2>Settings</h2>
-            {fields}
-            <div className="row">
-              <button className="btn btn-primary btn-small" onClick={() => void act('Saved. The robot picks it up within a few seconds.', () => api(`/api/robots/${robot.id}`, { method: 'PATCH', body: JSON.stringify(toBody(form)) }))}>Save</button>
-              <button className="btn btn-ghost btn-small" onClick={() => { if (confirm(`Remove ${robot.name}?`)) void act('Removed.', async () => { await api(`/api/robots/${robot.id}`, { method: 'DELETE' }); setSelected(undefined); setDetail(undefined) }) }}>Remove robot</button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {robot && !adding && (
-        <div className="grid-2">
-          <section className="card" aria-label="Robot log">
-            <h2>Live log</h2>
-            <div className="logbox" aria-live="polite">
-              {detail.logs.length === 0 && <span className="hint">Nothing yet.</span>}
-              {detail.logs.map((l) => (
-                <div key={l.id} className={l.level === 'warn' ? 'log-warn' : l.level === 'error' ? 'log-error' : undefined}>
-                  <span className="hint">{new Date(l.ts).toLocaleTimeString()}</span>{' '}
-                  {l.level === 'user' ? 'Visitor: ' : l.level === 'agent' ? 'HALA: ' : ''}{l.message}
+            <div className="panel" role="tabpanel">
+              {tab === 'connect' && (
+                <>
+                  <ul className="checklist">
+                    {CHECKLIST.map((c, i) => (
+                      <li key={c}>
+                        <input type="checkbox" aria-label={c} checked={ticks[i]} onChange={() => { const next = ticks.map((t, j) => (j === i ? !t : t)); setTicks(next); try { localStorage.setItem('hala-checklist', JSON.stringify(next)) } catch { /* ignore */ } }} />
+                        <span>{c}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="hint" style={{ margin: '12px 0 6px' }}>
+                    Run in the container on PC2. {token?.id === robot.id ? 'The token is shown once.' : 'The token was shown once when the robot was added; make a new one if you need it again.'}
+                  </p>
+                  <div className="code">
+                    <button className="btn btn-ghost btn-small code-copy" onClick={() => { void navigator.clipboard?.writeText(command); setMessage('Copied.') }}>Copy</button>
+                    {command}
+                  </div>
+                  <div className="row" style={{ marginTop: 10 }}>
+                    <button className="btn btn-ghost btn-small" onClick={() => void act('New token made. The old one stopped working.', async () => { const r = await api(`/api/robots/${robot.id}/token`, { method: 'POST' }) as { token: string }; setToken({ id: robot.id, value: r.token }) })}>Make a new token</button>
+                  </div>
+                </>
+              )}
+              {tab === 'settings' && (
+                <>
+                  {fields}
+                  <div className="row">
+                    <button className="btn btn-primary btn-small" onClick={() => void act('Saved. The robot picks it up within a few seconds.', () => api(`/api/robots/${robot.id}`, { method: 'PATCH', body: JSON.stringify(toBody(form)) }))}>Save</button>
+                    <button className="btn btn-ghost btn-small" onClick={() => { if (confirm(`Remove ${robot.name}?`)) void act('Removed.', async () => { await api(`/api/robots/${robot.id}`, { method: 'DELETE' }); setSelected(undefined); setDetail(undefined) }) }}>Remove robot</button>
+                  </div>
+                </>
+              )}
+              {tab === 'log' && (
+                <div className="logbox" aria-live="polite">
+                  {(detail?.logs.length ?? 0) === 0 && <span className="hint">Nothing yet.</span>}
+                  {detail?.logs.map((l) => (
+                    <div key={l.id} className={l.level === 'warn' ? 'log-warn' : l.level === 'error' ? 'log-error' : undefined}>
+                      <span className="hint">{new Date(l.ts).toLocaleTimeString()}</span>{' '}
+                      {l.level === 'user' ? 'Visitor: ' : l.level === 'agent' ? 'HALA: ' : ''}{l.message}
+                    </div>
+                  ))}
+                  <div ref={logEnd} />
                 </div>
-              ))}
-              <div ref={logEnd} />
+              )}
+              {tab === 'activity' && (
+                events.length === 0
+                  ? <p className="empty">{conversationId ? 'Nothing booked or logged yet.' : 'Appears while the robot is in a conversation.'}</p>
+                  : <ol className="events">{[...events].reverse().map((e) => <EventCard key={e.id} event={e} />)}</ol>
+              )}
             </div>
-            {detail.commands.length > 0 && (
-              <p className="hint" style={{ marginTop: 10 }}>Last command: {detail.commands[detail.commands.length - 1]!.type} · {detail.commands[detail.commands.length - 1]!.status}{detail.commands[detail.commands.length - 1]!.result ? ` · ${detail.commands[detail.commands.length - 1]!.result}` : ''}</p>
-            )}
-          </section>
-          <section className="card" aria-label="What HALA did">
-            <h2>What HALA did</h2>
-            {events.length === 0
-              ? <p className="empty" style={{ padding: '12px 0' }}>{conversationId ? 'Nothing booked or logged yet.' : 'Appears while the robot is in a conversation.'}</p>
-              : <ol className="events">{[...events].reverse().map((e) => <EventCard key={e.id} event={e} />)}</ol>}
-          </section>
-        </div>
-      )}
-    </main>
+          </>
+        ) : (
+          <p className="empty">Select or add a robot.</p>
+        )}
+        {(message || note) && <p className={`notice ${note && !message ? 'notice-warn' : ''}`} role="status">{message ?? note}</p>}
+      </section>
+    </div>
   )
 }

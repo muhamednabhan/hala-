@@ -3,6 +3,7 @@ import { ConversationProvider } from '@elevenlabs/react'
 import { useEffect, useRef, useState } from 'react'
 import { useHala, type LanguagePref } from '@/lib/use-hala'
 import { EventCard } from './EventCard'
+import { Link } from './Brand'
 
 const LANGS: { id: LanguagePref; label: string; hint: string }[] = [
   { id: 'auto', label: 'Auto', hint: 'Greets in both languages and follows you' },
@@ -42,15 +43,23 @@ function Panel() {
   const headline = hala.live ? (hala.mode === 'speaking' ? 'HALA is speaking' : 'Listening') : connecting ? 'Connecting' : 'Ready when you are'
   const headlineAr = hala.live ? (hala.mode === 'speaking' ? 'هلا تتحدث' : 'أستمع إليك') : connecting ? 'جارٍ الاتصال' : 'جاهزة عندما تكون جاهزاً'
   const unseen = tab === 'activity' ? 0 : hala.events.length - seen
+  // Where the conversation is, read from what actually happened (not guessed from the voice).
+  const types = new Set(hala.events.map((e) => e.type))
+  const progress = !hala.live ? -1
+    : ['booking_created', 'booking_rescheduled', 'booking_cancelled', 'request_logged', 'handover_requested'].some((t) => types.has(t as never)) ? 3
+    : types.has('service_matched') || types.has('slots_listed') ? 2
+    : hala.lines.some((l) => l.role === 'user') ? 1 : 0
 
   return (
-    <main className="page talk">
-      <section className="card stage" aria-label="Voice conversation">
+    <div className="talk">
+      <section className="card stage dark" aria-label="Voice conversation">
         <Orb live={hala.live} mode={hala.mode} level={hala.getOutputVolume} />
         <div className="state" aria-live="polite">
           <p className="state-main">{headline}</p>
           <p className="state-ar" lang="ar">{headlineAr}</p>
         </div>
+
+        <Link steps={['Greet', 'Understand', 'Resolve', 'Confirm']} active={progress} label="Conversation progress" />
 
         <div className="seg-group" role="radiogroup" aria-label="Language">
           {LANGS.map((l) => (
@@ -65,7 +74,7 @@ function Panel() {
         <div className="actions">
           {hala.live ? (
             <>
-              <button type="button" className="btn btn-quiet" onClick={() => hala.stop()}>End conversation</button>
+              <button type="button" className="btn btn-end" onClick={() => hala.stop()}>End conversation</button>
               <button type="button" className="btn btn-ghost" aria-pressed={hala.isMuted} onClick={() => hala.setMuted(!hala.isMuted)}>
                 {hala.isMuted ? 'Unmute' : 'Mute'}
               </button>
@@ -83,7 +92,7 @@ function Panel() {
             One step could not reach our server. Check the connection and that the agent was synced.
           </p>
         )}
-        <p className="hint">Say “Hello” or «مرحبا». You can switch language whenever you like.</p>
+        <p className="hint">Say “Hello” or «مرحبا». Switch language whenever you like.</p>
       </section>
 
       <section className="card feed" aria-label="Conversation and activity">
@@ -98,7 +107,18 @@ function Panel() {
 
         {tab === 'chat' ? (
           <div role="tabpanel" id="panel-chat" aria-labelledby="tab-chat" className="panel" aria-live="polite">
-            {hala.lines.length === 0 && <p className="empty">Your conversation will appear here.</p>}
+            {hala.lines.length === 0 && (
+              <div className="starter">
+                <p className="eyebrow">Try asking</p>
+                <ul className="chips">
+                  {['Renew an employee visa', 'Book a no objection certificate', 'Which licence fits a software company?', 'How do I get an access card?', 'My AC is broken', 'Where is the e-wallet machine?'].map((q) => <li key={q} className="chip">{q}</li>)}
+                </ul>
+                <ul className="chips" lang="ar" dir="rtl">
+                  {['أريد تجديد تأشيرة موظف', 'أحتاج شهادة عدم ممانعة', 'المكيف خربان', 'أين جهاز إيداع المحفظة؟'].map((q) => <li key={q} className="chip">{q}</li>)}
+                </ul>
+                <p className="hint">Your conversation appears here once you start.</p>
+              </div>
+            )}
             {hala.lines.map((l) => (
               <p key={l.id} className={`bubble bubble-${l.role}`} dir="auto">
                 <span className="who">{l.role === 'agent' ? 'HALA' : 'You'}</span>
@@ -116,11 +136,7 @@ function Panel() {
         )}
       </section>
 
-      <p className="foot">
-        HALA is an AI assistant, not a person. Fees, times and bookings here are demonstration values, not official DSO figures.
-        <span lang="ar" dir="rtl"> هلا مساعدة ذكاء اصطناعي. الرسوم والمدد والحجوزات المعروضة قيم تجريبية.</span>
-      </p>
-    </main>
+    </div>
   )
 }
 
