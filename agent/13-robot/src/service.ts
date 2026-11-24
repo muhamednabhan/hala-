@@ -51,7 +51,7 @@ export const syncInput = z.object({
   state: z.object({
     phase: z.enum(['starting', 'idle', 'connecting', 'conversation', 'stopping', 'error']).optional(),
     ros: z.boolean().optional(), simulation: z.boolean().optional(), speakerFocus: z.boolean().optional(),
-    micStream: z.number().int().min(0).max(9).optional(), micMessages: z.number().int().min(0).optional(),
+    micStream: z.number().int().min(0).max(9).optional(), micMode: z.enum(['raw', 'processed']).optional(), micMessages: z.number().int().min(0).optional(),
     micAgeSecs: z.number().nullable().optional(), conversationId: z.string().max(120).optional(),
     agentOutputFormat: z.string().max(30).optional(), agentInputFormat: z.string().max(30).optional(), lastError: z.string().max(300).optional()
   }).optional(),

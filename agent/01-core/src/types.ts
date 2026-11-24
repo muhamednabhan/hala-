@@ -171,6 +171,8 @@ export interface RobotState {
   speakerFocus?: boolean
   /** Which microphone stream is being used (1 built-in, 2 external, 0 none yet). */
   micStream?: number
+  /** raw = /aima/hal/audio/capture (no wake word, no echo cancellation); processed = wake-word gated. */
+  micMode?: 'raw' | 'processed'
   /** Microphone messages received since the bridge started, and seconds since the last one. */
   micMessages?: number
   micAgeSecs?: number | null

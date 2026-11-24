@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { HalaEvent, RobotCommand, RobotLog } from '@hala/core'
 import type { RobotView } from '@hala/robot'
-import { setupCommands } from '@hala/robot/setup'
+import { prepareCommands, restoreCommands, setupCommands } from '@hala/robot/setup'
 import { Link } from './Brand'
 import { EventCard } from './EventCard'
 
@@ -26,11 +26,11 @@ const PHASES: Record<string, string> = {
 
 /** The engineer's one-time job, from the AimDK docs and the starter bridge. Ticks are remembered in this browser. */
 const CHECKLIST = [
-  'X2 Ultra (the EDU has no voice module), powered on.',
-  'MangoBot set voice-only mode (run mode "only_voice") and restarted the agent module.',
-  'PC2 has internet. Test: curl -I this site from the container.',
-  'AimDK workspace path known and entered in Settings.',
-  'You are in the MangoBot container on PC2. Never PC1.'
+  'You are logged in to the robot (ssh run@10.0.1.41) and working only in ~/hala. No container tonight.',
+  'No other team’s bridge is using the speaker (the check in "Before your slot").',
+  'You ran "Before your slot": the robot’s own assistant (Lumi) is off.',
+  'The setup command ran without errors and this robot shows Online.',
+  'When you leave: Ctrl+C the bridge, then run "When you leave" so the robot is put back.'
 ]
 
 function Status({ tone, children }: { tone: 'ok' | 'warn' | 'bad' | 'idle'; children: React.ReactNode }) {
@@ -150,7 +150,7 @@ export default function RobotConsole({ active }: { active: boolean }) {
         <div className="field"><label htmlFor="ip">Robot IP (reference)</label><input id="ip" className="input" value={form.ip} onChange={(e) => setForm({ ...form, ip: e.target.value })} placeholder="10.0.1.41" /></div>
         <div className="field"><label htmlFor="dom">ROS domain id</label><input id="dom" className="input" inputMode="numeric" value={form.domainId} onChange={(e) => setForm({ ...form, domainId: e.target.value })} placeholder="optional" /></div>
       </div>
-      <div className="field"><label htmlFor="aim">AimDK workspace path</label><input id="aim" className="input" value={form.aimdkPath} onChange={(e) => setForm({ ...form, aimdkPath: e.target.value })} placeholder="~/aimdk" /></div>
+      <div className="field"><label htmlFor="aim">Built AimDK location</label><input id="aim" className="input" value={form.aimdkPath} onChange={(e) => setForm({ ...form, aimdkPath: e.target.value })} placeholder="/agibot/software/common (default)" /></div>
       <div className="row">
         <div className="field"><label htmlFor="mic">Microphone</label>
           <select id="mic" className="input" value={form.micStream} onChange={(e) => setForm({ ...form, micStream: e.target.value })}>
@@ -287,12 +287,18 @@ export default function RobotConsole({ active }: { active: boolean }) {
                     ))}
                   </ul>
                   <p className="hint" style={{ margin: '12px 0 6px' }}>
-                    Run in the container on PC2. {token?.id === robot.id ? 'The token is shown once.' : 'The token was shown once when the robot was added; make a new one if you need it again.'}
+                    Run on the robot, in your folder. {token?.id === robot.id ? 'The token is shown once.' : 'The token was shown once when the robot was added; make a new one if you need it again.'}
                   </p>
                   <div className="code">
                     <button className="btn btn-ghost btn-small code-copy" onClick={() => { void navigator.clipboard?.writeText(command); setMessage('Copied.') }}>Copy</button>
                     {command}
                   </div>
+                  <details className="steps"><summary>Before your slot (Lumi off, volume, speaker check)</summary>
+                    <div className="code">{prepareCommands()}</div>
+                  </details>
+                  <details className="steps"><summary>When you leave (put the robot back)</summary>
+                    <div className="code">{restoreCommands()}</div>
+                  </details>
                   <div className="row" style={{ marginTop: 10 }}>
                     <button className="btn btn-ghost btn-small" onClick={() => void act('New token made. The old one stopped working.', async () => { const r = await api(`/api/robots/${robot.id}/token`, { method: 'POST' }) as { token: string }; setToken({ id: robot.id, value: r.token }) })}>Make a new token</button>
                   </div>

@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createStores } from '@hala/booking'
-import { createRobotService, hashToken, setupCommands, statusOf } from '../src'
+import { createRobotService, hashToken, prepareCommands, restoreCommands, setupCommands, statusOf } from '../src'
 
 const bridgePath = resolve(__dirname, '../bridge/hala_robot_bridge.py')
 const publicCopy = resolve(__dirname, '../../06-talk-app/public/hala_robot_bridge.py')
@@ -127,18 +127,34 @@ describe('robot service', () => {
 })
 
 describe('setup command', () => {
-  it('builds the exact steps from the robot details', () => {
-    const text = setupCommands({ aimdkPath: '~/aimdk', domainId: 5 }, 'https://hala.example.com/', 'hbr_abc')
+  it('builds the steps for the robot as organised on 24 Nov: host, built AimDK, own folder, pylib', () => {
+    const text = setupCommands({ domainId: 5 }, 'https://hala.example.com/', 'hbr_abc')
+    expect(text).toContain('mkdir -p ~/hala && cd ~/hala')
     expect(text).toContain('source /opt/ros/humble/setup.bash')
-    expect(text).toContain('source ~/aimdk/install/setup.bash')
+    expect(text).toContain('export PYTHONPATH=/agibot/software/common/local/lib/python3.10/dist-packages:$PYTHONPATH')
+    expect(text).toContain('export LD_LIBRARY_PATH=/agibot/software/common/lib:$LD_LIBRARY_PATH')
+    expect(text).toContain('export AMENT_PREFIX_PATH=/agibot/software/common:$AMENT_PREFIX_PATH')
     expect(text).toContain('export ROS_DOMAIN_ID=5')
+    expect(text).toContain('python3 -m pip install --no-deps --target ./pylib websocket-client')
+    expect(text).toContain('export PYTHONPATH=$PWD/pylib:$PYTHONPATH')
     expect(text).toContain('curl -fsSL https://hala.example.com/hala_robot_bridge.py')
-    expect(text).toContain('HALA_URL=https://hala.example.com HALA_ROBOT_TOKEN=hbr_abc python3 hala_robot_bridge.py')
+    expect(text).toContain('HALF_DUPLEX=1 HALA_URL=https://hala.example.com HALA_ROBOT_TOKEN=hbr_abc python3 hala_robot_bridge.py')
+    expect(text).not.toMatch(/pip3? install --user|sudo/)
   })
-  it('shows a placeholder when the AimDK path is unknown and skips the domain when unset', () => {
-    const text = setupCommands({}, 'https://x.io', 'hbr_t')
-    expect(text).toContain('<path to aimdk>/install/setup.bash')
+  it('uses a custom AimDK location and skips the domain when unset', () => {
+    const text = setupCommands({ aimdkPath: '/opt/aimdk/' }, 'https://x.io', 'hbr_t')
+    expect(text).toContain('/opt/aimdk/local/lib/python3.10/dist-packages')
     expect(text).not.toContain('ROS_DOMAIN_ID')
+  })
+  it('prepare and restore use the organisers commands, in the right order', () => {
+    const prep = prepareCommands()
+    expect(prep).toMatch(/value: 2\}, value: only_voice/)
+    expect(prep.indexOf('stop-app agent')).toBeLessThan(prep.indexOf('start-app agent'))
+    expect(prep).toContain('audio_volume: 95')
+    expect(prep).toContain('ros2 topic info -v --no-daemon /aima/hal/audio/playback')
+    const back = restoreCommands()
+    expect(back).toContain('audio_volume: 72')
+    expect(back).toMatch(/value: 2\}, value: normal/)
   })
 })
 
@@ -152,6 +168,8 @@ describe('bridge script', () => {
     expect((src.match(/create_publisher\(/g) ?? []).length).toBe(1)
     expect(src).toContain('/aima/hal/audio/playback')
     expect(src).toContain('/agent/process_audio_output')
+    expect(src).toContain('/aima/hal/audio/capture')
+    expect(src).toContain('def on_raw_mic')
     expect(src).toContain('AudioPlayback')
   })
   const python = spawnSync('python', ['--version'])

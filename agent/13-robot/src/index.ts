@@ -3,4 +3,4 @@ export {
   BRIDGE_VERSION, SYNC_SECS, ONLINE_WINDOW_SECS,
   type RobotService, type RobotView, type RobotStatus
 } from './service'
-export { setupCommands } from './setup'
+export { setupCommands, prepareCommands, restoreCommands, DEFAULT_AIMDK } from './setup'

@@ -22,6 +22,9 @@ The Robot page on the website shows the exact commands for your robot. In short:
 Environment variables
   HALA_URL            the website address (required)
   HALA_ROBOT_TOKEN    the pairing token from the Robot page (required)
+  HALA_MIC=raw        (default) raw microphone /aima/hal/audio/capture: no wake word needed, but no echo
+                      cancellation, so the bridge mutes the mic while the robot speaks (half duplex).
+                      HALA_MIC=processed uses /agent/process_audio_output, which stays silent until the wake word.
   HALA_SIM=1          simulation: no ROS, no robot. Pairs, syncs and talks to the agent, discards the audio.
                       Use it on a laptop to check everything except the robot's own audio.
   VERBOSE=1           print every event from ElevenLabs
@@ -48,6 +51,7 @@ BRIDGE_VERSION = "1.0.0"
 HALA_URL = os.environ.get("HALA_URL", "").strip().rstrip("/")
 TOKEN = os.environ.get("HALA_ROBOT_TOKEN", "").strip()
 SIM = os.environ.get("HALA_SIM", "0") == "1"
+MIC_MODE = "processed" if os.environ.get("HALA_MIC", "raw") == "processed" else "raw"
 VERBOSE = os.environ.get("VERBOSE", "0") == "1"
 
 RATE = 16000                 # Hz: what the robot gives and takes
@@ -74,6 +78,10 @@ if not SIM:
         from aimdk_msgs.msg import (AudioData, AudioInfo, AudioPlayback, AudioVadStateType, CommonState,
                                     FocusRequester, FocusResponse, ProcessedAudioOutput)
         from aimdk_msgs.srv import AbandonAudioFocus, RequestAudioFocus, StopAudioPlay
+        try:
+            from aimdk_msgs.msg import AudioCapture  # raw multi-channel microphone
+        except Exception:
+            AudioCapture = None
         HAVE_ROS = True
     except Exception as e:  # ImportError, or a ROS environment that is not sourced
         ROS_ERROR = str(e)
@@ -153,7 +161,11 @@ if HAVE_ROS:
             self.pkg = "hala_bridge%d" % os.getpid()
             self.token = 0
             mic_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=500, reliability=QoSReliabilityPolicy.BEST_EFFORT)
-            self.create_subscription(ProcessedAudioOutput, "/agent/process_audio_output", self.on_mic, mic_qos)
+            if MIC_MODE == "raw" and AudioCapture is not None:
+                # 6 interleaved channels, S16LE, 16 kHz: 4 microphones + 2 speaker reference. Needs no wake word.
+                self.create_subscription(AudioCapture, "/aima/hal/audio/capture", self.on_raw_mic, mic_qos)
+            else:
+                self.create_subscription(ProcessedAudioOutput, "/agent/process_audio_output", self.on_mic, mic_qos)
             self.create_subscription(FocusResponse, "/aima/hal/audio/focus_response", self.on_focus, 10)
             self.player = self.create_publisher(AudioPlayback, "/aima/hal/audio/playback", 10)
             self.focus_cli = self.create_client(RequestAudioFocus, "/aimdk_5Fmsgs/srv/RequestAudioFocus")
@@ -201,6 +213,16 @@ if HAVE_ROS:
             if msg.pkg_name == self.pkg and not msg.focus_gain and self.holding:
                 self.b.log("warn", "speaker focus lost, asking again")
                 threading.Thread(target=self.take_focus, daemon=True).start()
+
+        def on_raw_mic(self, msg):
+            import numpy as np
+            try:
+                a = np.frombuffer(bytes(msg.data.data), dtype="<i2").reshape(-1, msg.info.channels)[:, :msg.mic_channels]
+                pcm = np.clip(a.astype(np.int32).mean(axis=1), -32768, 32767).astype("<i2").tobytes()
+            except Exception as e:
+                self.b.log("warn", "raw microphone frame ignored: %s" % e)
+                return
+            self.b.accept(pcm)
 
         def on_mic(self, msg):
             self.b.on_mic(msg.stream_id, bytes(msg.audio_data), msg.audio_vad_state.value == AudioVadStateType.AUDIO_VAD_STATE_BEGIN)
@@ -277,8 +299,7 @@ class Bridge:
 
     # ------------------------------------------------------------------ microphone
     def on_mic(self, stream_id, pcm, speech_start):
-        self.mic_messages += 1
-        self.last_mic = time.monotonic()
+        """Processed microphone (wake-word gated): pick one stream, then hand over to accept()."""
         want = self.config.get("micStream", 0)
         if want:
             if stream_id != want:
@@ -288,10 +309,17 @@ class Bridge:
             self.log("info", "listening on microphone stream %d" % stream_id)
         elif stream_id != self.mic_stream:
             return
-        if self.config.get("halfDuplex") and time.monotonic() < self.speaking_until:
-            return
         if VERBOSE and speech_start:
             self.log("info", "speech start")
+        self.accept(pcm)
+
+    def accept(self, pcm):
+        """One chunk of 16 kHz mono S16LE microphone audio, from either microphone source."""
+        self.mic_messages += 1
+        self.last_mic = time.monotonic()
+        # The raw microphone has no echo cancellation: without half duplex the robot hears and answers itself.
+        if (self.config.get("halfDuplex") or MIC_MODE == "raw") and time.monotonic() < self.speaking_until:
+            return
         self.mic_q.put(pcm)
 
     def mic_loop(self):
@@ -514,7 +542,7 @@ class Bridge:
         age = None if not self.last_mic else round(time.monotonic() - self.last_mic, 1)
         st = {
             "phase": self.phase, "ros": bool(self.io and self.io.ros), "simulation": SIM, "speakerFocus": self.focus,
-            "micStream": self.config.get("micStream") or self.mic_stream, "micMessages": self.mic_messages, "micAgeSecs": age,
+            "micStream": self.config.get("micStream") or self.mic_stream, "micMode": MIC_MODE, "micMessages": self.mic_messages, "micAgeSecs": age,
             "agentOutputFormat": self.out_format, "agentInputFormat": self.in_format,
         }
         if self.conversation_id:
@@ -583,7 +611,7 @@ class Bridge:
         self.phase = "idle"
         threading.Thread(target=self.mic_loop, daemon=True).start()
         threading.Thread(target=self.speaker_loop, daemon=True).start()
-        self.log("info", "bridge %s started. Waiting for Start on the website." % BRIDGE_VERSION)
+        self.log("info", "bridge %s started (microphone: %s). Waiting for Start on the website." % (BRIDGE_VERSION, MIC_MODE))
         self.control_loop()
 
     def stop(self, *_):
