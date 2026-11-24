@@ -35,7 +35,7 @@ export function buildProcedures(t: ProcedureTools): ProcedureDef[] {
       id: 'book_appointment',
       name: 'Book an appointment',
       trigger: 'The caller wants to book, arrange or schedule an appointment or a visit for a DSO service (visa, licence, NOC, establishment card, access card, leasing, a desk appointment).',
-      content: `Goal: one appointment, booked in as few turns as possible.
+      content: `Goal: one appointment, booked in as few turns as possible. Speak only the caller's language, never a mix.
 1. Know the service from the sheet. If the request is vague, ask ONE short question to choose.
 2. In ONE question, get what is missing: who it is for (the caller, or someone else and then that person's name), a phone number or email, and a day (or "as soon as possible").
 3. Call ${t.listSlots} with their words ("tomorrow", "Monday", "next_available"). Offer at most three times, spread across the day. Do not read more.

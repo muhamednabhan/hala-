@@ -28,6 +28,7 @@ const noSheet = flag('no-sheet')
 const lean = flag('lean')
 const voice = (opt('voice') ?? 'v3') as 'v3' | 'flash'
 const llm = opt('llm')
+const preSpeech = opt('pre-speech') as 'force' | 'auto' | 'off' | undefined
 const kb = get('HALA_KB_B64') ? (JSON.parse(Buffer.from(get('HALA_KB_B64')!, 'base64').toString('utf8')) as { id: string; name: string }[]) : []
 const pron = get('HALA_PRONUNCIATION_ID') ? { pronunciationDictionaryId: get('HALA_PRONUNCIATION_ID')!, versionId: get('HALA_PRONUNCIATION_VERSION') } : undefined
 const baseUrl = opt('base-url') ?? get('PUBLIC_BASE_URL') ?? ''
@@ -46,7 +47,7 @@ if (!dry && !process.env.ELEVENLABS_API_KEY) {
 }
 
 for (const channel of channels) {
-  const config = buildAgentConfig({ channel, publicBaseUrl: baseUrl || 'https://example.invalid', toolSecret: secret, voiceId: get('HALA_VOICE_ID'), lean, sheet: !noSheet, voiceModel: voice, knowledge: kb, pronunciation: pron, ...(llm ? { llm: llm as never } : {}), ...(dev ? { nameSuffix: '(dev)' } : dev2 ? { nameSuffix: '(dev2)' } : {}) })
+  const config = buildAgentConfig({ channel, publicBaseUrl: baseUrl || 'https://example.invalid', toolSecret: secret, voiceId: get('HALA_VOICE_ID'), lean, sheet: !noSheet, ...(preSpeech ? { preSpeech } : {}), voiceModel: voice, knowledge: kb, pronunciation: pron, ...(llm ? { llm: llm as never } : {}), ...(dev ? { nameSuffix: '(dev)' } : dev2 ? { nameSuffix: '(dev2)' } : {}) })
   if (dry) {
     console.log(JSON.stringify(redact(config, secret), null, 2))
     continue

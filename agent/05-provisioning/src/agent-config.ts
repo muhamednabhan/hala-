@@ -21,6 +21,8 @@ export interface AgentConfigOptions {
   services?: Service[]
   /** Sampling temperature: low, because this agent must not improvise facts. */
   temperature?: number
+  /** Override every tool's pre-speech ("one moment") mode. 'off' removes spoken fillers before tools. */
+  preSpeech?: 'force' | 'auto' | 'off'
   /** Appended to the agent name, e.g. "(dev)", so an experiment never touches the live agent. */
   nameSuffix?: string
   /** Keep the full service sheet in the prompt (default). False: only an index; details come from the knowledge base. */
@@ -61,7 +63,7 @@ export const TTS_MODEL: ElevenLabs.TtsConversationalModel = 'eleven_flash_v2_5'
 
 export const agentName = (channel: Channel = 'web') => (channel === 'robot' ? 'HALA Concierge (robot)' : 'HALA Concierge')
 
-function toWebhookTool(spec: ToolSpec, baseUrl: string, secret: string): ElevenLabs.PromptAgentApiModelInputToolsItem {
+function toWebhookTool(spec: ToolSpec, baseUrl: string, secret: string, preSpeech?: 'force' | 'auto' | 'off'): ElevenLabs.PromptAgentApiModelInputToolsItem {
   const entries = Object.entries(spec.params)
   const properties: Record<string, ElevenLabs.LiteralJsonSchemaProperty> = {
     // The conversation id is filled in by ElevenLabs, never by the model. It ties events to the live screen.
@@ -75,7 +77,10 @@ function toWebhookTool(spec: ToolSpec, baseUrl: string, secret: string): ElevenL
     name: spec.name,
     description: spec.description,
     responseTimeoutSecs: spec.timeoutSecs,
-    preToolSpeech: spec.preSpeech,
+    // No spoken "one moment" before tools by default: the platform words it in the agent's BASE language (Arabic), so an
+    // English caller heard Arabic fillers. The typing sound plays instead, and the slow-reply filler (soft timeout) is
+    // generated in the caller's language.
+    preToolSpeech: preSpeech ?? ('off' as const),
     // A sound while a slow tool runs, so the line is never silent. Quick tools stay quiet (a typing sound for 300 ms is jarring).
     toolCallSound: 'typing' as const,
     toolCallSoundBehavior: spec.preSpeech === 'force' ? ('always' as const) : ('auto' as const),
@@ -139,7 +144,7 @@ export function buildAgentConfig(o: AgentConfigOptions) {
         } : {}),
         ...(o.reasoningEffort ? { reasoningEffort: o.reasoningEffort } : {}),
         timezone: 'Asia/Dubai',
-        tools: TOOL_SPECS.map((s) => toWebhookTool(s, o.publicBaseUrl, o.toolSecret)),
+        tools: TOOL_SPECS.map((s) => toWebhookTool(s, o.publicBaseUrl, o.toolSecret, o.preSpeech)),
         builtInTools: {
           endCall: { name: 'end_call', params: { systemToolType: 'end_call' as const } },
           languageDetection: { name: 'language_detection', params: { systemToolType: 'language_detection' as const } }
