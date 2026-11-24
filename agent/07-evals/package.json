@@ -8,6 +8,11 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "test": "vitest run --root ../.. agent/07-evals",
+    "live:dry": "tsx src/live-cli.ts --dry-run",
+    "live": "tsx --env-file-if-exists=../../.env.local --env-file-if-exists=../../.env.hala src/live-cli.ts"
+  },
   "dependencies": {
     "@hala/core": "*",
     "@hala/catalogue": "*",
