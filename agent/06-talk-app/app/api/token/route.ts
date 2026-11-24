@@ -1,4 +1,4 @@
-import { agentId, elevenlabs, json } from '@/lib/server'
+import { agentId, elevenlabs, hasApiKey, json } from '@/lib/server'
 import { clientKey, createRateLimiter } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const channel = new URL(req.url).searchParams.get('channel') === 'robot' ? 'robot' : 'web'
   const id = agentId(channel)
   if (!id) return json({ error: 'The agent is not set up yet. Run `npm run agent:sync` first.' }, 503)
-  if (!process.env.ELEVENLABS_API_KEY) return json({ error: 'ELEVENLABS_API_KEY is missing on the server.' }, 503)
+  if (!hasApiKey()) return json({ error: 'ELEVENLABS_API_KEY is missing on the server.' }, 503)
   try {
     const { token } = await elevenlabs().conversationalAi.conversations.getWebrtcToken({ agentId: id })
     return json({ token, agentId: id })
