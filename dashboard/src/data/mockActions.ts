@@ -2,7 +2,7 @@
 
 import { serviceLabel } from './services';
 import type { GapAnswer, RequestPatch } from './source';
-import type { Booking, Db } from './types';
+import type { Db } from './types';
 
 const nowIso = () => new Date().toISOString();
 
@@ -32,14 +32,6 @@ export function createMockActions(db: Db, notify: () => void) {
       return done();
     },
 
-    logFollowup(requestId: string, type: 'followup_sent' | 'callback_scheduled', detail: string) {
-      const r = find(db.requests, requestId, 'Request');
-      addEvent(r.call_id, type, r.service, { request_id: r.id, detail });
-      if (r.status === 'open') r.status = 'needs_followup';
-      r.updated_at = nowIso();
-      return done();
-    },
-
     answerGap(id: string, a: GapAnswer) {
       const g = find(db.knowledge_gaps, id, 'Question');
       Object.assign(g, {
@@ -50,6 +42,19 @@ export function createMockActions(db: Db, notify: () => void) {
         answered_by: 'admin',
         answered_at: nowIso(),
       });
+      return done();
+    },
+
+    addKnowledge(e: GapAnswer & { question: string }) {
+      const now = nowIso();
+      const existing = db.knowledge_gaps.find((g) => g.question.trim().toLowerCase() === e.question.trim().toLowerCase());
+      const fields = { status: 'answered' as const, answer_en: e.answer_en, answer_ar: e.answer_ar || null, service: e.service, answered_by: 'admin', answered_at: now };
+      if (existing) Object.assign(existing, fields);
+      else
+        db.knowledge_gaps.push({
+          id: `gap_new_${Date.now()}`, question: e.question.trim(), language: /[\u0600-\u06FF]/.test(e.question) ? 'ar' : 'en',
+          times_asked: 0, first_asked_at: now, last_asked_at: now, times_used: 0, ...fields,
+        });
       return done();
     },
 
@@ -73,7 +78,7 @@ export function createMockActions(db: Db, notify: () => void) {
       return done();
     },
 
-    updateBooking(id: string, patch: { status: Booking['status']; slot_at?: string }) {
+    updateBooking(id: string, patch: { status: 'cancelled' | 'rescheduled'; slot_at?: string }) {
       const b = find(db.bookings, id, 'Booking');
       Object.assign(b, patch, { updated_at: nowIso() });
       return done();

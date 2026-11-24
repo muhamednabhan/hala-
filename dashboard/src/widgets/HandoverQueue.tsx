@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useData, useQuery } from '../app/DataContext';
+import { useMemo } from 'react';
+import { useData, useNavPreset, useQuery } from '../app/DataContext';
 import { HANDOVER_REASON_LABEL, serviceLabel } from '../data/services';
 import type { Handover } from '../data/types';
 import { LangBadge } from '../ui/Badges';
@@ -12,8 +12,8 @@ const REASON_CLS: Record<string, string> = {
   emergency: 'bg-red-600 text-white ring-red-600',
   upset_caller: 'bg-red-50 text-red-700 ring-red-200',
   legal_question: 'bg-violet-50 text-violet-700 ring-violet-200',
-  out_of_scope: 'bg-stone-100 text-stone-700 ring-stone-200',
-  unknown_answer: 'bg-gold-50 text-gold-800 ring-gold-200',
+  out_of_scope: 'bg-slate-100 text-slate-700 ring-slate-200',
+  unknown_answer: 'bg-navy-50 text-navy-800 ring-navy-200',
   caller_requested: 'bg-blue-50 text-blue-700 ring-blue-200',
 };
 
@@ -21,7 +21,8 @@ function HandoversView() {
   const { source, openCall } = useData();
   const { data } = useQuery((s, f) => s.getSnapshot(f));
   const { run, busy, banner } = useAction();
-  const [tab, setTab] = useState<Handover['status']>('waiting');
+  const [tabRaw, setTab] = useNavPreset('handovers', 'tab', 'waiting');
+  const tab = (['waiting', 'picked_up', 'resolved'].includes(tabRaw) ? tabRaw : 'waiting') as Handover['status'];
 
   const { by, langByCall } = useMemo(() => {
     const by: Record<Handover['status'], Handover[]> = { waiting: [], picked_up: [], resolved: [] };
@@ -33,7 +34,7 @@ function HandoversView() {
     return { by, langByCall };
   }, [data]);
 
-  if (!data) return <div className="text-stone-400">Loading…</div>;
+  if (!data) return <div className="text-slate-400">Loading…</div>;
   const rows = by[tab];
 
   return (
@@ -55,14 +56,14 @@ function HandoversView() {
           {rows.map((h) => {
             const r = {
               label: HANDOVER_REASON_LABEL[h.reason] ?? h.reason.replace(/_/g, ' '),
-              cls: REASON_CLS[h.reason] ?? 'bg-stone-100 text-stone-700 ring-stone-200',
+              cls: REASON_CLS[h.reason] ?? 'bg-slate-100 text-slate-700 ring-slate-200',
             };
             const mins = (Date.now() - Date.parse(h.created_at)) / 60000;
             const urgent = h.status === 'waiting' && mins > 10;
             return (
               <li
                 key={h.id}
-                className={`rounded-lg border bg-white p-4 ${urgent ? 'border-amber-300 ring-1 ring-amber-100' : 'border-stone-200'}`}
+                className={`rounded-lg border bg-white p-4 ${urgent ? 'border-amber-300 ring-1 ring-amber-100' : 'border-slate-200'}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -71,24 +72,24 @@ function HandoversView() {
                       <LangBadge lang={h.call_id ? langByCall.get(h.call_id) : null} />
                       <span className="font-semibold text-ink">{serviceLabel(h.service)}</span>
                     </div>
-                    <div className="mt-1 text-xs text-stone-500">{fmtDateTime(h.created_at)}</div>
+                    <div className="mt-1 text-xs text-slate-500">{fmtDateTime(h.created_at)}</div>
                   </div>
                   {h.status !== 'resolved' && (
                     <div className="text-right">
                       <div className={`text-xl font-semibold tabular-nums ${urgent ? 'text-amber-700' : 'text-ink'}`}>{fmtAge(h.created_at)}</div>
-                      <div className="text-[10px] uppercase tracking-wider text-stone-400">waiting</div>
+                      <div className="text-[10px] uppercase tracking-wider text-slate-400">waiting</div>
                     </div>
                   )}
                 </div>
-                <div className="mt-3 rounded-md bg-stone-50 px-3 py-2 text-sm text-stone-700">
-                  <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-gold-700">HALA already collected</div>
+                <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-navy-700">HALA already collected</div>
                   <div dir="auto">{h.context || '—'}</div>
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <button
                     type="button"
                     onClick={() => h.call_id && openCall(h.call_id)}
-                    className="text-xs font-semibold uppercase tracking-wider text-gold-700 hover:text-gold-900"
+                    className="text-xs font-semibold uppercase tracking-wider text-navy-700 hover:text-navy-900"
                   >
                     Transcript →
                   </button>

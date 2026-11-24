@@ -10,4 +10,4 @@ export interface WidgetDef {
   Component: ComponentType;
 }
 
-export type PageId = 'overview' | 'conversations' | 'requests' | 'followups' | 'teach' | 'handovers' | 'bookings';
+export type PageId = 'overview' | 'calendar' | 'conversations' | 'requests' | 'followups' | 'teach' | 'handovers' | 'bookings';

@@ -1,4 +1,4 @@
-import { buildCallDetail, buildConversations, buildFeed, buildLatestCall, computeKpis, filterDb } from './compute';
+import { buildCallDetail, buildConversations, buildDayStats, buildFeed, buildHandoverAlert, buildLatestCall, computeKpis, filterDb } from './compute';
 import { createMockActions } from './mockActions';
 import { computeInsights } from './insights';
 import { MIX_TODAY, addCall, seedDb } from './mockData';
@@ -91,6 +91,8 @@ export function createMockSource(): DataSource {
     getCall: async (id) => buildCallDetail(db, id),
     getInsights: async (f) => computeInsights(db, f),
     getConversations: async (f, q) => buildConversations(db, f, q),
+    getDayStats: async (f) => buildDayStats(db, f),
+    getHandoverAlert: async (id) => buildHandoverAlert(db, id),
     getLatestCall: async (f) => buildLatestCall(db, f),
     subscribe(onChange) {
       listeners.add(onChange);

@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { handle } from './server/handler.js';
+import { envFrom } from './server/rules.js';
 
 /** Minimal KEY=VALUE parser for the agent's env files at the repo root. */
 function readEnvFile(path: string): Record<string, string> {
@@ -14,91 +16,43 @@ function readEnvFile(path: string): Record<string, string> {
   return out;
 }
 
-/**
- * The Supabase key is a service key (full access, bypasses RLS). Only these calls may pass through
- * the dashboard's proxy; everything else is refused before it reaches Supabase.
- */
-const SUPABASE_ALLOW: Record<string, RegExp> = {
-  GET: /^\/(hala_bookings|hala_requests|hala_handovers|hala_events|hala_knowledge_answers)(\?|$)/,
-  PATCH: /^\/(hala_handovers|hala_bookings|hala_knowledge_answers)\?id=eq\.|^\/(hala_bookings|hala_requests)\?ref=eq\./,
-  POST: /^\/hala_knowledge_answers(\?|$)/,
-};
-
-function supabaseGuard(): Plugin {
+/** Serves /api/proxy in development with exactly the code Vercel runs in production (api/proxy.ts). */
+function dashboardServer(get: (k: string) => string): Plugin {
   return {
-    name: 'hala-supabase-guard',
+    name: 'hala-dashboard-server',
     configureServer(server) {
-      server.middlewares.use('/sb-api', (req, res, next) => {
-        const rule = SUPABASE_ALLOW[req.method ?? ''];
-        if (rule && rule.test(req.url ?? '')) return next();
-        res.statusCode = 403;
-        res.end(`Blocked by dashboard: ${req.method} ${req.url?.split('?')[0]}`);
+      server.middlewares.use('/api/proxy', (req, res) => {
+        handle(req, res, envFrom(get)).catch((e: Error) => {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: e.message }));
+        });
       });
     },
   };
 }
 
 export default defineConfig(({ mode }) => {
-  // Order of precedence: dashboard/.env.local, then the agent's files at the repo root
-  // (.env.hala written by `agent:sync`, .env.local written by ElevenLabs onboarding).
+  // Settings, first match wins: dashboard/.env.local, the agent's files at the repo root
+  // (.env.hala from `agent:sync`, .env.local from ElevenLabs onboarding), then the process (Vercel).
   const root = resolve(__dirname, '..');
   const fromRoot = { ...readEnvFile(resolve(root, '.env.local')), ...readEnvFile(resolve(root, '.env.hala')) };
   const own = loadEnv(mode, __dirname, '');
   const get = (k: string) => own[k] || fromRoot[k] || process.env[k] || '';
-
-  const talkUrl = get('TALK_APP_URL') || 'http://localhost:3005';
-  const adminKey = get('HALA_ADMIN_KEY');
-  const toolSecret = get('HALA_TOOL_SECRET');
-  const elevenKey = get('ELEVENLABS_API_KEY');
-  const supabaseUrl = get('SUPABASE_URL').replace(/\/$/, '');
-  const supabaseKey = get('SUPABASE_SERVICE_KEY');
-  const supabase = !!(supabaseUrl && supabaseKey);
+  const env = envFrom(get);
 
   return {
-    plugins: [react(), supabaseGuard()],
-    // Only non-secret values reach the browser bundle.
+    plugins: [react(), dashboardServer(get)],
+    // Only non-secret facts reach the browser bundle: agent ids and which feeds are configured.
     define: {
       __HALA_AGENTS__: JSON.stringify({ web: get('HALA_AGENT_ID'), robot: get('HALA_AGENT_ID_ROBOT') }),
-      __HALA_PROXY__: JSON.stringify({ talk: !!adminKey, tools: !!toolSecret, eleven: !!elevenKey, supabase, talkUrl }),
+      __HALA_PROXY__: JSON.stringify({
+        talk: !!env.adminKey,
+        tools: !!env.toolSecret,
+        eleven: !!env.elevenKey,
+        supabase: !!(env.supabaseUrl && env.supabaseKey),
+        talkUrl: env.talkUrl,
+      }),
     },
-    server: {
-      port: 5173,
-      // Keys are added here, in the dev server, so they never appear in the browser.
-      proxy: {
-        '/hala-api': {
-          target: talkUrl,
-          changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/hala-api/, ''),
-          headers: { ...(adminKey ? { 'x-hala-admin-key': adminKey } : {}), ...(toolSecret ? { 'x-hala-secret': toolSecret } : {}) },
-        },
-        ...(supabase
-          ? {
-              '/sb-api': {
-                target: `${supabaseUrl}/rest/v1`,
-                changeOrigin: true,
-                secure: true,
-                rewrite: (p: string) => p.replace(/^\/sb-api/, ''),
-                headers: { apikey: supabaseKey, authorization: `Bearer ${supabaseKey}` },
-                // Server-to-server call: drop everything that identifies the browser (Supabase refuses
-                // secret keys on browser requests, and cookies have no business going to Supabase).
-                configure: (proxy) => {
-                  proxy.on('proxyReq', (proxyReq) => {
-                    for (const h of proxyReq.getHeaderNames())
-                      if (/^(origin|referer|cookie|sec-|user-agent)/.test(h)) proxyReq.removeHeader(h);
-                    proxyReq.setHeader('user-agent', 'hala-dashboard-devserver');
-                  });
-                },
-              },
-            }
-          : {}),
-        '/el-api': {
-          target: 'https://api.elevenlabs.io',
-          changeOrigin: true,
-          secure: true,
-          rewrite: (p) => p.replace(/^\/el-api/, ''),
-          headers: elevenKey ? { 'xi-api-key': elevenKey } : {},
-        },
-      },
-    },
+    server: { port: 5173 },
   };
 });

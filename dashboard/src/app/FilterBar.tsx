@@ -12,19 +12,18 @@ function Segmented<T extends string>({
   onChange: (v: T) => void;
   label: string;
 }) {
+  // DSO dashboard style (WEEK / MONTH / QUARTER): separate outlined buttons, active one filled Oasis Navy.
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-stone-500">{label}</span>
-      <div className="flex rounded-lg bg-stone-100 p-0.5 ring-1 ring-stone-200">
+      <span className="font-display text-[13px] font-semibold uppercase tracking-[0.14em] text-slate-600">{label}</span>
+      <div className="flex gap-1.5">
         {options.map((o) => (
           <button
             key={o.value}
             type="button"
             onClick={() => onChange(o.value)}
-            className={`rounded-md px-3 py-1 text-sm font-medium transition ${
-              value === o.value
-                ? 'bg-white text-ink shadow-card ring-1 ring-gold-300'
-                : 'text-stone-500 hover:text-ink'
+            className={`rounded-control border px-3 py-1.5 font-display text-[14px] font-semibold uppercase tracking-[0.08em] transition ${
+              value === o.value ? 'border-navy-600 bg-navy-600 text-white' : 'border-slate-300 bg-white text-navy-700 hover:border-navy-400'
             }`}
           >
             {o.label}
@@ -36,10 +35,10 @@ function Segmented<T extends string>({
 }
 
 export function FilterBar() {
-  const { filters, setFilters } = useData();
+  const { filters, setFilters, source } = useData();
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => setFilters({ ...filters, [k]: v });
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
       <Segmented
         label="Period"
         value={filters.range}
@@ -71,6 +70,17 @@ export function FilterBar() {
           { value: 'ar', label: 'AR' },
         ]}
       />
+      {source.mode === 'live' && (
+        <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-[#194176]"
+            checked={filters.hideTests}
+            onChange={(e) => set('hideTests', e.target.checked)}
+          />
+          Hide test calls
+        </label>
+      )}
     </div>
   );
 }

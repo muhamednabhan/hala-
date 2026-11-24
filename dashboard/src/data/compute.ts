@@ -1,7 +1,8 @@
 // Pure functions: raw tables (Db) + filters -> what widgets need.
 // Shared by mockSource and supabaseSource so both modes show identical numbers.
 
-import type { CallDetail, ConversationRow, Db, FeedItem, Filters, Kpis, Language, RequestStatus, TranscriptTurn } from './types';
+import { serviceLabel } from './services';
+import type { CallDetail, CallerHistory, ConversationRow, Db, FeedItem, Filters, Handover, HandoverAlert, Kpis, Language, RequestStatus, TranscriptTurn } from './types';
 
 export function startOfToday(now = Date.now()): number {
   const d = new Date(now);
@@ -15,23 +16,32 @@ export function rangeStart(range: Filters['range'], now = Date.now()): number | 
   return null;
 }
 
+/** Conversations the team created while testing (not real callers). */
+const TEST_CALL = /^(t|test|smoke|prod-smoke|demo)([-_ ].*|\d*)$/i;
+const TEST_NAME = /^(demo caller|test( user)?|.*\btest)$/i; // "Smoke Test", "Latency Test"…
+export const isTestCall = (id: string) => TEST_CALL.test(id);
+
 /** Apply the global filter bar. Calls are filtered first; child rows follow their call. */
 export function filterDb(db: Db, f: Filters): Db {
   const start = rangeStart(f.range);
   const calls = db.calls.filter(
     (c) =>
+      !(f.hideTests && isTestCall(c.id)) &&
       (start == null || Date.parse(c.started_at) >= start) &&
       (f.channel === 'all' || c.channel === f.channel) &&
       (f.language === 'all' || c.language === f.language),
   );
   const ids = new Set(calls.map((c) => c.id));
-  const byCall = <T extends { call_id: string | null }>(rows: T[]) =>
-    rows.filter((r) => r.call_id != null && ids.has(r.call_id));
+  // Rows not tied to a conversation (e.g. a booking made outside a call) only show when not filtering by channel/language.
+  const orphanOk = (r: { created_at?: string }) =>
+    f.channel === 'all' && f.language === 'all' && (start == null || !r.created_at || Date.parse(r.created_at) >= start);
+  const byCall = <T extends { call_id: string | null; created_at?: string }>(rows: T[]) =>
+    rows.filter((r) => (r.call_id != null ? ids.has(r.call_id) : orphanOk(r)));
   return {
     calls,
     requests: byCall(db.requests),
     events: byCall(db.events),
-    bookings: byCall(db.bookings),
+    bookings: byCall(db.bookings).filter((b) => !(f.hideTests && TEST_NAME.test(b.customer_name.trim()))),
     tasks: byCall(db.tasks),
     handovers: byCall(db.handovers),
     feedback: byCall(db.feedback),
@@ -156,7 +166,7 @@ export function buildCallDetail(db: Db, callId: string): CallDetail | null {
   const mine = <T extends { call_id: string | null }>(rows: T[]) => rows.filter((r) => r.call_id === callId);
   return {
     call,
-    requests: mine(db.requests),
+    requests: db.requests.filter((r) => r.call_id === callId || r.thread?.calls.includes(callId)),
     events: mine(db.events).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)),
     bookings: mine(db.bookings),
     handovers: mine(db.handovers),
@@ -173,10 +183,12 @@ export function buildConversations(db: Db, f: Filters, query = '', limit = 150):
   const q = query.trim().toLowerCase();
   const reqsByCall = new Map<string, Db['requests']>();
   for (const r of d.requests) {
-    if (!r.call_id) continue;
-    const list = reqsByCall.get(r.call_id) ?? [];
-    list.push(r);
-    reqsByCall.set(r.call_id, list);
+    for (const id of new Set([r.call_id, ...(r.thread?.calls ?? [])])) {
+      if (!id) continue;
+      const list = reqsByCall.get(id) ?? [];
+      list.push(r);
+      reqsByCall.set(id, list);
+    }
   }
   const ratingByCall = new Map(d.feedback.map((x) => [x.call_id, x.rating]));
   const rows: ConversationRow[] = [];
@@ -202,6 +214,9 @@ export function buildConversations(db: Db, f: Filters, query = '', limit = 150):
       statuses: reqs.map((r) => r.status),
       rating: ratingByCall.get(c.id) ?? null,
       snippet,
+      caller_name: c.caller_name ?? null,
+      direction: c.direction,
+      outbound_reason: c.outbound_reason ?? null,
     });
     if (rows.length >= limit) break;
   }
@@ -217,3 +232,143 @@ export function buildLatestCall(db: Db, f: Filters): CallDetail | null {
 
 /** Demo follow-up threshold (real: 2 days): open requests older than this need a follow-up. */
 export const FOLLOWUP_THRESHOLD_MS = 2 * 60 * 1000;
+
+// ---- Handover alert: who is this caller, and what happened with them before? ----
+
+const phoneKey = (v: string | null | undefined) => {
+  const d = String(v ?? '').replace(/\D/g, '');
+  return d.length >= 6 ? d.slice(-7) : ''; // 050 1234567 and +971 50 1234567 are the same person
+};
+const nameKey = (v: string | null | undefined) => {
+  const n = String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return n.length >= 3 ? n : '';
+};
+
+/** Name and contact for a handover: from the handover itself, else from its call, its context, or rows in the same call. */
+function callerOf(db: Db, h: Handover): { name: string | null; contact: string | null } {
+  const call = h.call_id ? db.calls.find((c) => c.id === h.call_id) : undefined;
+  const sameCall = h.call_id ? db.requests.find((r) => r.call_id === h.call_id && r.contact)?.contact : null;
+  const booking = h.call_id ? db.bookings.find((b) => b.call_id === h.call_id) : undefined;
+  const fromContext = h.context?.match(/^([^(—]+?)\s*\(([^)]+)\)/);
+  return {
+    // All of these come from THIS call; nothing is borrowed from earlier calls on the same number.
+    name: h.caller_name || call?.caller_name || booking?.customer_name || fromContext?.[1]?.trim() || null,
+    contact: h.contact || call?.phone || sameCall || booking?.contact || fromContext?.[2]?.trim() || null,
+  };
+}
+
+export function buildHandoverAlert(db: Db, handoverId: string): HandoverAlert | null {
+  const handover = db.handovers.find((h) => h.id === handoverId);
+  if (!handover) return null;
+  const call = handover.call_id ? db.calls.find((c) => c.id === handover.call_id) ?? null : null;
+  const { name, contact } = callerOf(db, handover);
+  const pk = phoneKey(contact);
+  const nk = nameKey(name);
+  const isThem = (c: string | null | undefined, n: string | null | undefined) => (!!pk && phoneKey(c) === pk) || (!!nk && nameKey(n) === nk);
+
+  // Their calls: any call where a row carries their number/name, or the call itself carries their name.
+  const callIds = new Set<string>();
+  for (const r of db.requests) if (r.call_id && isThem(r.contact, null)) callIds.add(r.call_id);
+  for (const b of db.bookings) if (b.call_id && isThem(b.contact, b.customer_name)) callIds.add(b.call_id);
+  for (const h of db.handovers) if (h.call_id && isThem(h.contact, h.caller_name)) callIds.add(h.call_id);
+  for (const c of db.calls) if (isThem(c.phone, c.caller_name)) callIds.add(c.id);
+  if (handover.call_id) callIds.delete(handover.call_id); // "before": not the call happening now
+
+  const items: CallerHistory['items'] = [];
+  const seen = new Set<string>();
+  for (const r of db.requests) {
+    const mine = (r.call_id && callIds.has(r.call_id)) || (r.thread?.calls ?? []).some((id) => callIds.has(id)) || isThem(r.contact, null);
+    if (!mine || r.call_id === handover.call_id || seen.has(r.id)) continue;
+    seen.add(r.id);
+    items.push({
+      at: r.created_at,
+      kind: 'request',
+      title: serviceLabel(r.service),
+      detail: r.question,
+      status: r.status,
+      call_id: r.call_id,
+      complaint: r.service === 'complaint',
+    });
+  }
+  for (const b of db.bookings) {
+    if (!isThem(b.contact, b.customer_name) && !(b.call_id && callIds.has(b.call_id))) continue;
+    items.push({
+      at: b.created_at,
+      kind: 'booking',
+      title: `${serviceLabel(b.service)} · ${b.id}`,
+      detail: `${b.status === 'cancelled' ? 'Cancelled' : 'Appointment'} ${new Date(b.slot_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`,
+      status: null,
+      call_id: b.call_id,
+      complaint: false,
+    });
+  }
+  for (const h of db.handovers) {
+    if (h.id === handover.id || !(isThem(h.contact, h.caller_name) || (h.call_id && callIds.has(h.call_id)))) continue;
+    items.push({
+      at: h.created_at,
+      kind: 'handover',
+      title: `Handed to a person · ${h.reason.replace(/_/g, ' ')}`,
+      detail: h.context,
+      status: h.status === 'resolved' ? 'solved' : 'needs_followup',
+      call_id: h.call_id,
+      complaint: h.reason === 'fee_dispute' || h.reason === 'upset_caller',
+    });
+  }
+  items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+
+  const calls = db.calls
+    .filter((c) => callIds.has(c.id))
+    .sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
+    .map((c) => ({ id: c.id, at: c.started_at, channel: c.channel, summary: c.summary }));
+
+  return { handover, call, history: { name, contact, calls, items } };
+}
+
+// ---- "How the day went": outcomes, caller satisfaction, and the shape of the day ----
+
+export interface DayStats {
+  outcomes: Record<RequestStatus, number>;
+  satisfaction: { positive: number; neutral: number; negative: number; notMeasured: number };
+  /** Average of numeric sentiment scores, when the source gives them. */
+  avgScore: number | null;
+  /** Requests per hour of day (or per day for multi-day periods), stacked by outcome. */
+  timeline: ({ label: string } & Record<RequestStatus, number>)[];
+  byDay: boolean;
+}
+
+export function buildDayStats(db: Db, f: Filters): DayStats {
+  const d = filterDb(db, f);
+  const outcomes: Record<RequestStatus, number> = { solved: 0, open: 0, needs_followup: 0, unsolved: 0 };
+  for (const r of d.requests) outcomes[r.status]++;
+
+  const satisfaction = { positive: 0, neutral: 0, negative: 0, notMeasured: 0 };
+  const scores: number[] = [];
+  for (const c of d.calls) {
+    if (c.mood) satisfaction[c.mood.label]++;
+    else satisfaction.notMeasured++;
+    if (c.mood?.score != null) scores.push(c.mood.score);
+  }
+
+  // One day: by hour. Longer: by day.
+  const times = d.requests.map((r) => Date.parse(r.created_at));
+  const span = times.length ? Math.max(...times) - Math.min(...times) : 0;
+  const byDay = f.range !== 'today' && span > 24 * 3600e3;
+  const buckets = new Map<string, { at: number } & Record<RequestStatus, number>>();
+  for (const r of d.requests) {
+    const t = new Date(r.created_at);
+    const key = byDay ? t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : `${String(t.getHours()).padStart(2, '0')}:00`;
+    const at = byDay ? new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime() : t.getHours();
+    const b = buckets.get(key) ?? { at, solved: 0, open: 0, needs_followup: 0, unsolved: 0 };
+    b[r.status]++;
+    buckets.set(key, b);
+  }
+  const timeline = [...buckets].sort((a, b) => a[1].at - b[1].at).map(([label, { at: _at, ...counts }]) => ({ label, ...counts }));
+
+  return {
+    outcomes,
+    satisfaction,
+    avgScore: scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null,
+    timeline,
+    byDay,
+  };
+}

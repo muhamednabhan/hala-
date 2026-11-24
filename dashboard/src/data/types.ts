@@ -52,6 +52,24 @@ export interface Call {
   transcript: TranscriptTurn[] | null;
   /** ElevenLabs post-call analysis (live mode): evaluation criteria + data collection. */
   analysis?: CallAnalysis | null;
+  /** Caller's name, only if they gave it in this call. */
+  caller_name?: string | null;
+  /** The number this call came from or went to (phone line). */
+  phone?: string | null;
+  /** 'outbound' = HALA called the person (reminder / callback). */
+  direction?: 'inbound' | 'outbound';
+  /** Why HALA called, for outbound calls, e.g. "Appointment reminder". */
+  outbound_reason?: string | null;
+  /** How the caller felt, only from a real source (ElevenLabs sentiment, or HALA flagging an upset caller). */
+  mood?: CallMood | null;
+}
+
+export interface CallMood {
+  label: 'positive' | 'neutral' | 'negative';
+  source: 'agent' | 'elevenlabs' | 'hala' | 'demo';
+  detail: string;
+  /** The raw score when the source gives one (e.g. hala_events.average_sentiment). */
+  score?: number | null;
 }
 
 export interface CallAnalysis {
@@ -82,6 +100,8 @@ export interface Booking {
   demo_fee_aed: number | null;
   created_at: string;
   updated_at: string;
+  /** Latest reminder call HALA made for this booking (live mode, hala_phone_rings). */
+  reminder?: { status: string; at: string } | null;
 }
 
 export interface Task {
@@ -104,6 +124,33 @@ export interface Handover {
   status: 'waiting' | 'picked_up' | 'resolved';
   context: string | null;
   created_at: string;
+  /** Collected by HALA during the call, when the caller gave them. */
+  caller_name?: string | null;
+  contact?: string | null;
+  language?: string | null;
+}
+
+/** Everything known about one caller, for the handover alert. */
+export interface CallerHistory {
+  name: string | null;
+  contact: string | null;
+  calls: { id: string; at: string; channel: string; summary: string | null }[];
+  items: {
+    at: string;
+    kind: 'request' | 'booking' | 'handover';
+    title: string;
+    detail: string | null;
+    status: RequestStatus | null;
+    call_id: string | null;
+    complaint: boolean;
+  }[];
+}
+
+/** A handover with what staff need to take over the call. */
+export interface HandoverAlert {
+  handover: Handover;
+  call: Call | null;
+  history: CallerHistory;
 }
 
 export interface ServiceRequest {
@@ -120,6 +167,16 @@ export interface ServiceRequest {
   note: string | null;
   created_at: string;
   updated_at: string;
+  /** Set when the same case spans several calls (e.g. booked in one call, cancelled in a follow-up call). */
+  thread?: RequestThread | null;
+}
+
+export interface RequestThread {
+  /** What ties the calls together, e.g. the booking reference HALA-1004. */
+  key: string;
+  /** Every call that touched this case, oldest first. */
+  calls: string[];
+  steps: { at: string; label: string; call_id: string | null }[];
 }
 
 export interface KnowledgeGap {
@@ -164,8 +221,10 @@ export interface Filters {
   range: DateRange;
   channel: 'all' | Channel;
   language: 'all' | 'en' | 'ar';
+  /** Leave out the team's smoke tests ("t", "smoke-*", "Smoke Test" bookings…). */
+  hideTests: boolean;
 }
-export const DEFAULT_FILTERS: Filters = { range: 'all', channel: 'all', language: 'all' };
+export const DEFAULT_FILTERS: Filters = { range: 'all', channel: 'all', language: 'all', hideTests: true };
 
 // ---- Derived shapes the widgets consume ----
 export interface Kpis {
@@ -215,6 +274,8 @@ export interface Insight {
   detail: string;
   metric?: string;
   quote?: string;
+  /** Where to see the items behind this finding. */
+  to?: { page: 'requests' | 'teach' | 'handovers' | 'conversations'; status?: RequestStatus | 'all'; service?: string; tab?: string };
 }
 
 export interface ConversationRow {
@@ -230,6 +291,9 @@ export interface ConversationRow {
   statuses: RequestStatus[];
   rating: number | null;
   snippet: string;
+  caller_name?: string | null;
+  direction?: 'inbound' | 'outbound';
+  outbound_reason?: string | null;
 }
 
 /** One line of the connection status shown in the header (live mode). */

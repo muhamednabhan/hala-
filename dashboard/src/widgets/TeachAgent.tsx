@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useData, useQuery } from '../app/DataContext';
+import { useData, useNavPreset, useQuery } from '../app/DataContext';
 import { SERVICES, serviceLabel } from '../data/services';
 import type { KnowledgeGap } from '../data/types';
 import { LangBadge } from '../ui/Badges';
@@ -7,37 +7,52 @@ import { Button, Empty, Field, Modal, Tabs, inputCls, useAction } from '../ui/co
 import { fmtAge, fmtDateTime } from '../ui/format';
 import type { WidgetDef } from './types';
 
-function AnswerGap({ gap, onClose }: { gap: KnowledgeGap; onClose: () => void }) {
+/** Answer a question HALA missed, or (gap = null) add a new question + answer before anyone asks. */
+function AnswerGap({ gap, onClose }: { gap: KnowledgeGap | null; onClose: () => void }) {
   const { source } = useData();
   const { run, busy, banner } = useAction();
-  const [en, setEn] = useState(gap.answer_en ?? '');
-  const [ar, setAr] = useState(gap.answer_ar ?? '');
-  const [service, setService] = useState(gap.service ?? 'general');
+  const [question, setQuestion] = useState('');
+  const [en, setEn] = useState(gap?.answer_en ?? '');
+  const [ar, setAr] = useState(gap?.answer_ar ?? '');
+  const [service, setService] = useState(gap?.service && gap.service !== 'none' ? gap.service : 'general');
   const save = async () => {
-    const ok = await run(() => source.answerGap(gap.id, { answer_en: en.trim(), answer_ar: ar.trim() || null, service }));
+    const answer = { answer_en: en.trim(), answer_ar: ar.trim() || null, service };
+    const ok = await run(
+      () => (gap ? source.answerGap(gap.id, answer) : source.addKnowledge({ question: question.trim(), ...answer })),
+      gap ? 'Answer saved' : 'Question and answer added',
+    );
     if (ok) onClose();
   };
   return (
     <Modal
-      title="Teach HALA the answer"
+      title={gap ? 'Teach HALA the answer' : 'Add a question and answer'}
       subtitle={
-        <span className="block border-l-2 border-gold-300 pl-2.5 text-base italic text-ink" dir="auto">
-          “{gap.question}”
-        </span>
+        gap ? (
+          <span className="block border-l-2 border-navy-300 pl-2.5 text-base italic text-ink" dir="auto">
+            “{gap.question}”
+          </span>
+        ) : (
+          'For something callers will ask that HALA doesn’t know yet.'
+        )
       }
       onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={busy || !en.trim()} onClick={save}>
+          <Button variant="primary" disabled={busy || !en.trim() || (!gap && question.trim().length < 5)} onClick={save}>
             Save answer
           </Button>
         </>
       }
     >
       {banner}
+      {!gap && (
+        <Field label="Question, as a caller would ask it">
+          <input className={inputCls} dir="auto" value={question} onChange={(e) => setQuestion(e.target.value)} autoFocus placeholder="e.g. Is there parking for visitors at DSO HQ?" />
+        </Field>
+      )}
       <Field label="Answer in English" hint="HALA reads this out on the next call that asks the same thing. Label any fee or timeline as DEMO.">
-        <textarea className={`${inputCls} h-28`} value={en} onChange={(e) => setEn(e.target.value)} autoFocus />
+        <textarea className={`${inputCls} h-28`} value={en} onChange={(e) => setEn(e.target.value)} autoFocus={!!gap} />
       </Field>
       <Field label="Answer in Arabic (optional)">
         <textarea className={`${inputCls} h-24`} dir="rtl" lang="ar" value={ar} onChange={(e) => setAr(e.target.value)} />
@@ -58,10 +73,10 @@ function AnswerGap({ gap, onClose }: { gap: KnowledgeGap; onClose: () => void })
 
 function Metric({ label, value, sub, accent }: { label: string; value: number; sub: string; accent: string }) {
   return (
-    <div className={`rounded-lg border border-stone-200 border-t-[3px] bg-white px-4 py-3 ${accent}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">{label}</div>
+    <div className={`rounded-lg border border-slate-200 border-t-[3px] bg-white px-4 py-3 ${accent}`}>
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</div>
       <div className="text-3xl font-semibold tabular-nums text-ink">{value}</div>
-      <div className="text-xs text-stone-500">{sub}</div>
+      <div className="text-xs text-slate-500">{sub}</div>
     </div>
   );
 }
@@ -70,8 +85,9 @@ function TeachView() {
   const { source } = useData();
   const { data } = useQuery((s, f) => s.getSnapshot(f));
   const { run, busy, banner } = useAction();
-  const [tab, setTab] = useState<KnowledgeGap['status']>('waiting');
-  const [answering, setAnswering] = useState<KnowledgeGap | null>(null);
+  const [tabRaw, setTab] = useNavPreset('teach', 'tab', 'waiting');
+  const tab = (['waiting', 'answered', 'out_of_scope'].includes(tabRaw) ? tabRaw : 'waiting') as KnowledgeGap['status'];
+  const [answering, setAnswering] = useState<KnowledgeGap | 'new' | null>(null);
 
   const gaps = data?.knowledge_gaps ?? [];
   const by = useMemo(() => {
@@ -83,9 +99,10 @@ function TeachView() {
     return out;
   }, [gaps]);
 
-  if (!data) return <div className="text-stone-400">Loading…</div>;
+  if (!data) return <div className="text-slate-400">Loading…</div>;
 
   const used = by.answered.reduce((s, g) => s + g.times_used, 0);
+  const askedTotal = gaps.reduce((s, g) => s + g.times_asked, 0);
   const waitingCalls = by.waiting.reduce((s, g) => s + g.times_asked, 0);
   const rows = by[tab];
 
@@ -93,11 +110,26 @@ function TeachView() {
     <div>
       {banner}
       <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Metric label="Questions waiting" value={by.waiting.length} sub={`asked ${waitingCalls} times in total`} accent="border-t-gold-500" />
-        <Metric label="Answered by admins" value={by.answered.length} sub="now part of HALA's knowledge" accent="border-t-emerald-600" />
-        <Metric label="Admin answers used" value={used} sub="times HALA reused an admin answer" accent="border-t-blue-600" />
+        <Metric label="Questions waiting" value={by.waiting.length} sub={`asked ${waitingCalls} times in total`} accent="border-t-navy-500" />
+        <Metric label="Answered by admins" value={by.answered.length} sub="saved for HALA" accent="border-t-emerald-600" />
+        {used > 0 ? (
+          <Metric label="Admin answers used" value={used} sub="times HALA gave an admin answer" accent="border-t-blue-600" />
+        ) : (
+          <Metric label="Times asked" value={askedTotal} sub="callers who hit a question HALA couldn't answer" accent="border-t-blue-600" />
+        )}
       </div>
+      {source.mode === 'live' && used === 0 && (
+        <div className="mb-4 rounded-md bg-navy-50 px-3 py-2 text-xs text-navy-900 ring-1 ring-navy-200">
+          Answers are saved in Supabase (<code>hala_knowledge_answers</code>). HALA starts giving them to callers once the agent's{' '}
+          <code>lookup_fact</code> tool reads that table (agent team).
+        </div>
+      )}
 
+      <div className="mb-1 flex justify-end">
+        <Button size="xs" variant="primary" onClick={() => setAnswering('new')}>
+          + Add a question and answer
+        </Button>
+      </div>
       <Tabs
         value={tab}
         onChange={setTab}
@@ -111,30 +143,30 @@ function TeachView() {
       {!rows.length ? (
         <Empty>{tab === 'waiting' ? 'HALA has answered everything callers asked. 🎉' : 'Nothing here yet.'}</Empty>
       ) : (
-        <ul className="divide-y divide-stone-100">
+        <ul className="divide-y divide-slate-100">
           {rows.map((g, i) => (
             <li key={g.id} className="flex flex-wrap items-start gap-4 py-4">
               <div className="w-14 shrink-0 text-center">
-                <div className={`text-2xl font-semibold tabular-nums ${tab === 'waiting' && i === 0 ? 'text-red-700' : 'text-gold-700'}`}>
+                <div className={`text-2xl font-semibold tabular-nums ${tab === 'waiting' && i === 0 ? 'text-red-700' : 'text-navy-700'}`}>
                   {tab === 'answered' ? g.times_used : g.times_asked}×
                 </div>
-                <div className="text-[10px] uppercase tracking-wider text-stone-400">{tab === 'answered' ? 'used' : 'asked'}</div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-400">{tab === 'answered' ? 'used' : 'asked'}</div>
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-[15px] font-medium leading-snug text-ink" dir="auto">
                   “{g.question}”
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone-500">
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                   <LangBadge lang={g.language} />
                   <span>{serviceLabel(g.service)}</span>
                   <span>· first asked {fmtDateTime(g.first_asked_at)}</span>
                   <span>· last asked {fmtAge(g.last_asked_at)} ago</span>
                 </div>
                 {tab === 'answered' && (
-                  <div className="mt-2 space-y-1 rounded-md bg-emerald-50/60 px-3 py-2 text-sm text-stone-700 ring-1 ring-emerald-100">
+                  <div className="mt-2 space-y-1 rounded-md bg-emerald-50/60 px-3 py-2 text-sm text-slate-700 ring-1 ring-emerald-100">
                     <div dir="auto">{g.answer_en}</div>
                     {g.answer_ar && (
-                      <div dir="rtl" lang="ar" className="text-stone-600">
+                      <div dir="rtl" lang="ar" className="text-slate-600">
                         {g.answer_ar}
                       </div>
                     )}
@@ -172,7 +204,7 @@ function TeachView() {
           ))}
         </ul>
       )}
-      {answering && <AnswerGap gap={answering} onClose={() => setAnswering(null)} />}
+      {answering && <AnswerGap gap={answering === 'new' ? null : answering} onClose={() => setAnswering(null)} />}
     </div>
   );
 }

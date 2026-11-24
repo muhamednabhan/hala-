@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState, type ButtonHTMLAttributes, type React
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
 
+// DSO design system: Signal Blue for actions, outlined Oasis Navy for secondary; condensed uppercase labels.
 const VARIANT: Record<Variant, string> = {
-  primary: 'bg-gold-600 text-white hover:bg-gold-700 ring-gold-600',
-  secondary: 'bg-white text-ink ring-stone-300 hover:bg-stone-50',
-  ghost: 'bg-transparent text-stone-600 ring-transparent hover:bg-stone-100',
-  danger: 'bg-white text-red-700 ring-red-200 hover:bg-red-50',
-  success: 'bg-emerald-600 text-white ring-emerald-600 hover:bg-emerald-700',
+  primary: 'bg-signal text-white hover:bg-signal-600 ring-signal',
+  secondary: 'bg-white text-navy-700 ring-navy-600/40 hover:bg-mist',
+  ghost: 'bg-transparent text-signal ring-transparent hover:bg-signal-50',
+  danger: 'bg-white text-red-700 ring-red-300 hover:bg-red-50',
+  success: 'bg-emerald-700 text-white ring-emerald-700 hover:bg-emerald-800',
 };
 
 export function Button({
@@ -20,8 +21,8 @@ export function Button({
     <button
       type="button"
       {...rest}
-      className={`inline-flex items-center justify-center gap-1.5 rounded-md font-medium ring-1 transition disabled:cursor-not-allowed disabled:opacity-50 ${
-        size === 'xs' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm'
+      className={`inline-flex items-center justify-center gap-1.5 rounded-control font-display font-semibold uppercase tracking-[0.06em] ring-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-50 ${
+        size === 'xs' ? 'px-2.5 py-1 text-[13px]' : 'px-4 py-2 text-[15px]'
       } ${VARIANT[variant]} ${className}`}
     />
   );
@@ -48,14 +49,13 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-ink/30 backdrop-blur-[1px]" onClick={onClose} />
-      <div className="relative w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="h-1 bg-gradient-to-r from-gold-700 via-gold-400 to-gold-700" />
+      <div className="relative w-full max-w-lg overflow-hidden rounded-card bg-white shadow-2xl">
         <div className="px-6 pb-2 pt-5">
-          <h3 className="font-display text-2xl font-bold text-ink">{title}</h3>
-          {subtitle && <div className="mt-1 text-sm text-stone-500">{subtitle}</div>}
+          <h3 className="font-display text-[28px] font-bold leading-tight text-ink">{title}</h3>
+          {subtitle && <div className="mt-1 text-sm text-slate-500">{subtitle}</div>}
         </div>
         <div className="max-h-[65vh] overflow-y-auto px-6 py-3">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-stone-100 bg-stone-50 px-6 py-3">{footer}</div>}
+        {footer && <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-6 py-3">{footer}</div>}
       </div>
     </div>
   );
@@ -64,15 +64,15 @@ export function Modal({
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
     <label className="mb-3 block">
-      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">{label}</span>
+      <span className="mb-1 block font-display text-[13px] font-semibold uppercase tracking-[0.12em] text-slate-600">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-stone-400">{hint}</span>}
+      {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
     </label>
   );
 }
 
 export const inputCls =
-  'w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-gold-400 focus:ring-2 focus:ring-gold-100';
+  'w-full rounded-control border border-slate-300 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-signal focus:ring-2 focus:ring-signal-50';
 
 /** Tabs / segmented filter used on list pages. */
 export function Tabs<T extends string>({
@@ -85,21 +85,21 @@ export function Tabs<T extends string>({
   options: { value: T; label: string; count?: number }[];
 }) {
   return (
-    <div className="flex flex-wrap gap-1 border-b border-stone-200">
+    <div className="flex flex-wrap gap-1 border-b border-slate-200">
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition ${
-            value === o.value ? 'border-gold-500 text-ink' : 'border-transparent text-stone-500 hover:text-ink'
+          className={`-mb-px border-b-2 px-3 py-2 font-display text-[16px] font-semibold tracking-wide transition ${
+            value === o.value ? 'border-signal text-ink' : 'border-transparent text-slate-600 hover:text-ink'
           }`}
         >
           {o.label}
           {o.count != null && (
             <span
               className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
-                value === o.value ? 'bg-gold-100 text-gold-800' : 'bg-stone-100 text-stone-500'
+                value === o.value ? 'bg-signal-50 text-signal-600' : 'bg-slate-100 text-slate-600'
               }`}
             >
               {o.count}
@@ -139,8 +139,8 @@ export function useAction() {
     <>
       {error && <div className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200">{error}</div>}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-[70] rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-xl">
-          <span className="mr-2 text-gold-300">✓</span>
+        <div className="fixed bottom-6 right-6 z-[70] rounded-control bg-midnight px-4 py-2.5 text-sm text-white shadow-xl">
+          <span className="mr-2 text-cyan">✓</span>
           {toast}
         </div>
       )}
@@ -150,5 +150,5 @@ export function useAction() {
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <div className="py-12 text-center text-sm text-stone-400">{children}</div>;
+  return <div className="py-12 text-center text-sm text-slate-400">{children}</div>;
 }

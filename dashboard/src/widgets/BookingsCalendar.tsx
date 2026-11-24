@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useData, useQuery } from '../app/DataContext';
+import { useData, useNavPreset, useQuery } from '../app/DataContext';
 import { SERVICES, serviceLabel } from '../data/services';
 import type { Booking } from '../data/types';
 import { Button, Empty, Field, Modal, Tabs, inputCls, useAction } from '../ui/controls';
@@ -10,7 +10,7 @@ const BOOKING_STATUS: Record<Booking['status'], { label: string; cls: string }> 
   confirmed: { label: 'Confirmed', cls: 'bg-emerald-50 text-emerald-700' },
   rescheduled: { label: 'Rescheduled', cls: 'bg-amber-50 text-amber-800' },
   cancelled: { label: 'Cancelled', cls: 'bg-red-50 text-red-700' },
-  completed: { label: 'Completed', cls: 'bg-stone-100 text-stone-600' },
+  completed: { label: 'Completed', cls: 'bg-slate-100 text-slate-600' },
 };
 
 const dayKey = (iso: string) => {
@@ -59,8 +59,9 @@ function BookingsView() {
   const { source, openCall } = useData();
   const { data } = useQuery((s, f) => s.getSnapshot(f));
   const { run, busy, banner } = useAction();
-  const [view, setView] = useState<'upcoming' | 'past'>('upcoming');
-  const [service, setService] = useState('all');
+  const [viewRaw, setView] = useNavPreset('bookings', 'tab', 'upcoming');
+  const view = viewRaw === 'past' ? 'past' : 'upcoming';
+  const [service, setService] = useNavPreset('bookings', 'service', 'all');
   const [moving, setMoving] = useState<Booking | null>(null);
 
   const { upcoming, past } = useMemo(() => {
@@ -71,7 +72,7 @@ function BookingsView() {
     return { upcoming, past };
   }, [data, service]);
 
-  if (!data) return <div className="text-stone-400">Loading…</div>;
+  if (!data) return <div className="text-slate-400">Loading…</div>;
 
   const rows = view === 'upcoming' ? upcoming : past;
   const days = new Map<number, Booking[]>();
@@ -110,10 +111,10 @@ function BookingsView() {
             <section key={day}>
               <h3 className="mb-2 flex items-center gap-3 font-display text-lg font-semibold text-ink">
                 {dayLabel(day)}
-                <span className="h-px flex-1 bg-gold-200" />
-                <span className="font-sans text-xs font-normal text-stone-400">{list.length} appointments</span>
+                <span className="h-px flex-1 bg-navy-200" />
+                <span className="font-sans text-xs font-normal text-slate-400">{list.length} appointments</span>
               </h3>
-              <ul className="divide-y divide-stone-100 rounded-lg border border-stone-200">
+              <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                 {list.map((b) => {
                   const st = BOOKING_STATUS[b.status];
                   const active = b.status === 'confirmed' || b.status === 'rescheduled';
@@ -122,16 +123,16 @@ function BookingsView() {
                       <div className="w-14 text-lg font-semibold tabular-nums text-ink">{fmtTime(b.slot_at)}</div>
                       <button type="button" onClick={() => b.call_id && openCall(b.call_id)} className="min-w-0 flex-1 text-left">
                         <div className="font-semibold text-ink">{serviceLabel(b.service)}</div>
-                        <div className="text-sm text-stone-500">
+                        <div className="text-sm text-slate-500">
                           {b.customer_name}
                           {b.company && <> · {b.company}</>} · <span className="tabular-nums">{b.contact}</span>
                         </div>
-                        {b.documents.length > 0 && <div className="text-xs text-stone-400">Bring: {b.documents.join(', ')}</div>}
+                        {b.documents.length > 0 && <div className="text-xs text-slate-400">Bring: {b.documents.join(', ')}</div>}
                       </button>
                       {b.demo_fee_aed != null && (
-                        <div className="text-right text-sm tabular-nums text-stone-600">
+                        <div className="text-right text-sm tabular-nums text-slate-600">
                           AED {b.demo_fee_aed.toLocaleString()}
-                          <span className="ml-1 rounded bg-gold-100 px-1 py-0.5 text-[9px] font-bold tracking-wider text-gold-800">DEMO</span>
+                          <span className="ml-1 rounded bg-navy-100 px-1 py-0.5 text-[9px] font-bold tracking-wider text-navy-800">DEMO</span>
                         </div>
                       )}
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${st.cls}`}>{st.label}</span>
@@ -140,14 +141,6 @@ function BookingsView() {
                           <>
                             <Button size="xs" onClick={() => setMoving(b)}>
                               Reschedule
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="success"
-                              disabled={busy}
-                              onClick={() => run(() => source.updateBooking(b.id, { status: 'completed' }), 'Marked completed')}
-                            >
-                              Complete
                             </Button>
                             <Button
                               size="xs"

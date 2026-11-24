@@ -1,7 +1,9 @@
 // Pages render whatever is listed here, in order. Add a widget = create src/widgets/<Name>.tsx + list it below.
 
 import BookingsCalendar from './BookingsCalendar';
+import CalendarView from './CalendarView';
 import Conversations from './Conversations';
+import DayCharts from './DayCharts';
 import FollowUps from './FollowUps';
 import HandoverQueue from './HandoverQueue';
 import Insights from './Insights';
@@ -13,7 +15,8 @@ import TeachAgent from './TeachAgent';
 import type { PageId, WidgetDef } from './types';
 
 export const registry: Record<PageId, WidgetDef[]> = {
-  overview: [KpiCards, LiveFeed, Insights, LiveConversation],
+  overview: [KpiCards, DayCharts, LiveConversation, LiveFeed, Insights],
+  calendar: [CalendarView],
   conversations: [Conversations],
   requests: [RequestsTable],
   followups: [FollowUps],
@@ -24,6 +27,7 @@ export const registry: Record<PageId, WidgetDef[]> = {
 
 export const PAGES: { id: PageId; label: string; subtitle?: string; buildStep: number; ready: boolean }[] = [
   { id: 'overview', label: 'Overview', subtitle: 'What HALA handled, what is still open, and what the data shows', buildStep: 2, ready: true },
+  { id: 'calendar', label: 'Calendar', subtitle: 'Appointments HALA booked, on the date and time they are booked for', buildStep: 2, ready: true },
   { id: 'conversations', label: 'Conversations', subtitle: 'Every call with its ElevenLabs transcript', buildStep: 2, ready: true },
   { id: 'requests', label: 'Requests', subtitle: 'Every service request across all calls', buildStep: 6, ready: true },
   { id: 'followups', label: 'Follow-ups', subtitle: 'Callers waiting on DSO, and tomorrow’s appointments', buildStep: 5, ready: true },

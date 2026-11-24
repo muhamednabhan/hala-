@@ -1,18 +1,19 @@
 // LIVE mode: reads the team's real agent data and maps it onto the dashboard's tables (Db).
 //
-//  1. Agent server (agent/06-talk-app, Briyan's branch), through the Vite proxy at /hala-api
+//  1. Agent server (agent/06-talk-app, Briyan's branch), through the dashboard server (/api/proxy?t=hala)
 //     GET /api/admin/bookings | requests | handovers | events   (admin key added by the proxy)
 //     GET /api/events                                            (live server-sent events)
 //     POST /api/tools/cancel_appointment | reschedule_appointment (tool secret added by the proxy)
 //     These read Supabase hala_* tables (or the JSON file) on the server.
-//  2. ElevenLabs, through the Vite proxy at /el-api (xi-api-key added by the proxy)
+//  2. ElevenLabs, through the dashboard server (/api/proxy?t=el, which adds xi-api-key)
 //     GET /v1/convai/conversations           list + summary + evaluation + data collection
 //     GET /v1/convai/conversations/{id}      transcript
 //     ElevenLabs is where conversation transcripts are stored; nothing is copied.
 //
 // Keys never reach the browser: vite.config.ts injects them into the proxied requests.
 
-import { buildCallDetail, buildConversations, buildFeed, buildLatestCall, computeKpis, filterDb } from './compute';
+import { buildCallDetail, buildConversations, buildDayStats, buildFeed, buildHandoverAlert, buildLatestCall, computeKpis, filterDb } from './compute';
+import { apiUrl, getJson } from './api';
 import { computeInsights } from './insights';
 import { HANDOVER_REASON_LABEL, getService } from './services';
 import type { DataSource } from './source';
@@ -97,6 +98,18 @@ interface TEvent {
   conversationId?: string;
   type: string;
   data: Record<string, unknown>;
+  /** hala_events.average_sentiment (added by the agent team; numeric, may be empty). */
+  averageSentiment?: number | null;
+}
+
+/**
+ * Turns a sentiment number into positive / neutral / negative. The scale isn't documented yet, so it is
+ * recognised from the value: -1..1 (most sentiment models), 1..5 (rating-like) or 0..100 (percent).
+ */
+export function sentimentLabel(v: number): 'positive' | 'neutral' | 'negative' {
+  if (v >= -1 && v <= 1) return v > 0.2 ? 'positive' : v < -0.2 ? 'negative' : 'neutral';
+  if (v > 1 && v <= 5) return v >= 4 ? 'positive' : v <= 2 ? 'negative' : 'neutral';
+  return v >= 60 ? 'positive' : v <= 40 ? 'negative' : 'neutral';
 }
 interface ElSummary {
   agent_id: string;
@@ -109,6 +122,7 @@ interface ElSummary {
   call_summary_title?: string | null;
   main_language?: string | null;
   rating?: number | null;
+  sentiment_analysis?: { overall_label?: 'positive' | 'neutral' | 'negative'; overall_frustration_score?: number | null } | null;
   data_collection_results?: Record<string, unknown> | null;
   evaluation_criteria_results?: Record<string, { result: 'success' | 'failure' | 'unknown'; rationale?: string }> | null;
 }
@@ -149,12 +163,6 @@ function toDubai(iso: string) {
   return { date: `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`, time: `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` };
 }
 
-async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  const text = await res.text();
-  if (!res.ok) throw new Error(`${res.status} ${url.split('?')[0]}: ${text.slice(0, 160) || res.statusText}`);
-  return (text ? JSON.parse(text) : null) as T;
-}
 
 /** Handover reason -> request outcome on the dashboard. */
 function handoverOutcome(reason: string): { status: RequestStatus; unsolved: UnsolvedReason | null } {
@@ -182,7 +190,60 @@ interface Raw {
   conversations: ElSummary[];
   details: Map<string, ElDetail>;
   answers?: TAnswer[];
+  /** hala_robot_logs: the robot bridge's log, incl. every spoken line ('agent' / 'user' levels). */
+  robotLogs?: TRobotLog[];
+  phoneConvs?: TPhoneConv[];
+  phoneMessages?: TPhoneMsg[];
+  rings?: TRing[];
+  contacts?: TContact[];
 }
+
+/** Phone line tables (phone team): which conversations were phone calls, the chat, outbound rings, contacts. */
+interface TPhoneConv { conversation_id: string; phone: string; created_at: string }
+interface TPhoneMsg { seq: number; phone: string; from_who: string; kind: string; text: string | null; duration_sec: number | null; ts: string }
+interface TRing { id: string; phone: string; reason: string | null; opening: string | null; kind: string | null; nudge_key: string | null; status: string | null; created_at: string }
+interface TContact { phone: string; name: string | null; language: string | null }
+
+interface TRobotLog {
+  ts: string;
+  level: string;
+  message: string;
+  robot_id?: string | null;
+}
+
+/** A robot conversation, cut out of the robot log ("connected." … "conversation closed"). */
+interface RobotSession {
+  start: number;
+  end: number;
+  turns: { role: 'agent' | 'user'; message: string; time_in_call_secs: number }[];
+}
+
+function robotSessions(logs: TRobotLog[]): RobotSession[] {
+  const out: RobotSession[] = [];
+  let cur: RobotSession | null = null;
+  for (const l of [...logs].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))) {
+    const t = Date.parse(l.ts);
+    const msg = (l.message ?? '').trim();
+    if (l.level === 'info' && msg.startsWith('connected.')) {
+      if (cur) out.push(cur);
+      cur = { start: t, end: t, turns: [] };
+      continue;
+    }
+    if (!cur) continue;
+    if ((l.level === 'agent' || l.level === 'user') && msg && msg !== '...') {
+      cur.turns.push({ role: l.level, message: msg, time_in_call_secs: Math.round((t - cur.start) / 1000) });
+      cur.end = t; // a session ends at its last spoken line, not when the robot finally disconnects
+    }
+    if (msg.startsWith('conversation closed')) {
+      out.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) out.push(cur);
+  return out.filter((s) => s.turns.some((x) => x.role === 'user'));
+}
+
+const last4 = (v: unknown) => (String(v ?? '').match(/(\d{4})\D*$/) ?? [])[1] ?? '';
 
 export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
   const db: Db = { calls: [], requests: [], events: [], bookings: [], tasks: [], handovers: [], knowledge_gaps: [], feedback: [] };
@@ -223,6 +284,15 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
         ? detail.transcript.filter((t) => t.message).map((t) => ({ role: t.role, message: t.message, time_in_call_secs: t.time_in_call_secs }))
         : null,
       analysis,
+      mood: c.sentiment_analysis?.overall_label
+        ? {
+            label: c.sentiment_analysis.overall_label,
+            source: 'elevenlabs',
+            detail: `ElevenLabs sentiment${
+              c.sentiment_analysis.overall_frustration_score != null ? ` · frustration ${Math.round(c.sentiment_analysis.overall_frustration_score * 100)}%` : ''
+            }`,
+          }
+        : null,
     });
     if (c.rating) db.feedback.push({ id: `fb_${c.conversation_id}`, call_id: c.conversation_id, rating: Math.round(c.rating), comment: null, created_at: new Date(start).toISOString() });
   }
@@ -289,6 +359,27 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
     if (e.conversationId) withOutcome.add(e.conversationId);
     return r.id;
   };
+
+  // One case per booking reference, across however many calls it takes.
+  const threads = new Map<string, ServiceRequest>();
+  /** Conversations HALA started itself (reminders / callbacks): always phone. */
+  const outboundCalls = new Set<string>();
+  const startThread = (ref: string, requestId: string, e: TEvent, label: string) => {
+    const r = db.requests.find((x) => x.id === requestId);
+    if (!r || !ref) return;
+    r.thread = { key: ref, calls: e.conversationId ? [e.conversationId] : [], steps: [{ at: e.ts, label, call_id: e.conversationId ?? null }] };
+    threads.set(ref, r);
+  };
+  const continueThread = (ref: string, e: TEvent, label: string, resolution: Resolution): string | null => {
+    const r = ref ? threads.get(ref) : undefined;
+    if (!r?.thread) return null;
+    r.thread.steps.push({ at: e.ts, label, call_id: e.conversationId ?? null });
+    if (e.conversationId && !r.thread.calls.includes(e.conversationId)) r.thread.calls.push(e.conversationId);
+    r.resolution = resolution;
+    r.updated_at = e.ts;
+    if (e.conversationId) withOutcome.add(e.conversationId);
+    return r.id;
+  };
   const push = (e: TEvent, type: string, service: string | null, detail: string, requestId?: string) =>
     db.events.push({ id: ++eventId, call_id: e.conversationId ?? null, created_at: e.ts, type, service, payload: { detail, request_id: requestId, source_id: e.id } });
 
@@ -308,12 +399,14 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
         break;
       case 'booking_created': {
         const b = bookingByRef.get(str(d.ref));
+        const ref = str(d.ref);
         const service = str(d.service) || b?.serviceId || svcFromConv();
         const detail = `${str(d.ref)} · booked for ${slotLabel(str(d.date), str(d.time))}`;
         const rid = addRequest(e, service, 'solved', 'booked', `Book ${getService(service)?.label ?? service} for ${str(d.attendee) || b?.attendeeName || 'caller'}`, {
           contact: b?.contact,
           language: b?.language,
         });
+        startThread(ref, rid, e, `Booked for ${slotLabel(str(d.date), str(d.time))}`);
         push(e, 'booking_created', service, detail, rid);
         break;
       }
@@ -323,10 +416,16 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
         const service = b?.serviceId ?? svcFromConv();
         const moved = e.type === 'booking_rescheduled';
         const detail = moved ? `${str(d.ref)} · moved to ${slotLabel(str(d.date), str(d.time))}` : `${str(d.ref)} · booking cancelled`;
-        const rid = addRequest(e, service, 'solved', moved ? 'rescheduled' : 'cancelled', moved ? 'Move my appointment' : 'Cancel my appointment', {
-          contact: b?.contact,
-          language: b?.language,
-        });
+        const step = moved ? `Moved to ${slotLabel(str(d.date), str(d.time))}` : 'Cancelled';
+        // Same booking as an earlier request (often a follow-up call): continue that case, don't start a new one.
+        const existing = continueThread(str(d.ref), e, step, moved ? 'rescheduled' : 'cancelled');
+        const rid =
+          existing ??
+          addRequest(e, service, 'solved', moved ? 'rescheduled' : 'cancelled', moved ? 'Move my appointment' : 'Cancel my appointment', {
+            contact: b?.contact,
+            language: b?.language,
+          });
+        if (!existing) startThread(str(d.ref), rid, e, step);
         push(e, e.type, service, detail, rid);
         break;
       }
@@ -388,6 +487,27 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
             times_used: 0,
           });
         }
+        break;
+      }
+      case 'outbound_call': {
+        // HALA called the person (reminder before an appointment, or a promised callback). Proposed event:
+        // { type: 'outbound_call', conversationId, data: { purpose: 'reminder' | 'callback', ref?, handover_id?, phone?, outcome? } }
+        const purpose = str(d.purpose) === 'reminder' ? 'Reminder call' : 'Callback';
+        const outcome = str(d.outcome);
+        const label = `📞 ${purpose} by HALA${outcome ? ` (${outcome.replace(/_/g, ' ')})` : ''}`;
+        const ref = str(d.ref);
+        const thread = ref ? threads.get(ref) : undefined;
+        if (thread?.thread) {
+          thread.thread.steps.push({ at: e.ts, label, call_id: e.conversationId ?? null });
+          if (e.conversationId && !thread.thread.calls.includes(e.conversationId)) thread.thread.calls.push(e.conversationId);
+        }
+        if (e.conversationId) {
+          outboundCalls.add(e.conversationId);
+          withOutcome.add(e.conversationId);
+        }
+        const handoverReq = d.handover_id ? db.requests.find((r) => r.id === `req_${raw.events.find((x) => x.type === 'handover_requested' && x.data?.id === d.handover_id)?.id}`) : undefined;
+        // Logged as a callback against the case, so the Follow-ups page shows "callback … ago".
+        push(e, 'callback_scheduled', thread?.service ?? handoverReq?.service ?? svcFromConv(), `${purpose.toLowerCase()} by HALA${ref ? ` · ${ref}` : ''}${outcome ? ` · ${outcome}` : ''}`, thread?.id ?? handoverReq?.id);
         break;
       }
       case 'tool_error':
@@ -469,6 +589,179 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
       created_at: r.createdAt,
     }),
   );
+  // ---- Channel: robot / phone / web (the agent doesn't record it, so work it out from what it leaves behind).
+  const firstTs = new Map<string, number>();
+  for (const e of raw.events) {
+    if (!e.conversationId) continue;
+    const t = Date.parse(e.ts);
+    if (!firstTs.has(e.conversationId) || t < firstTs.get(e.conversationId)!) firstTs.set(e.conversationId, t);
+  }
+  const callById = new Map(db.calls.map((c) => [c.id, c]));
+
+  // Robot: the conversation happened inside a robot session in hala_robot_logs. The log also holds the transcript.
+  const phoneIds = new Set((raw.phoneConvs ?? []).map((p) => p.conversation_id));
+  for (const s of robotSessions(raw.robotLogs ?? [])) {
+    const inside = [...firstTs]
+      .filter(([id, t]) => !phoneIds.has(id) && t >= s.start - 5000 && t <= s.end + 30000)
+      .sort((a, b) => a[1] - b[1]) // the earliest conversation in the session is the robot's
+      .map(([id]) => id);
+    const target = inside.map((id) => callById.get(id)).find(Boolean);
+    const lang = s.turns.some((x) => isArabic(x.message)) ? (s.turns.some((x) => x.role === 'user' && !isArabic(x.message)) ? 'mixed' : 'ar') : 'en';
+    if (target) {
+      target.channel = 'robot';
+      target.started_at = new Date(Math.min(s.start, Date.parse(target.started_at))).toISOString();
+      if (!target.transcript?.length) target.transcript = s.turns;
+      if (target.status === 'done') {
+        target.ended_at = new Date(s.end).toISOString();
+        target.duration_secs = Math.round((s.end - s.start) / 1000);
+      }
+      target.language = target.language ?? lang;
+    } else {
+      // A robot conversation where the agent didn't call any tool: still a call worth showing.
+      const id = `robot:${new Date(s.start).toISOString()}`;
+      const call: Call = {
+        id, agent_id: null, channel: 'robot', started_at: new Date(s.start).toISOString(), ended_at: new Date(s.end).toISOString(),
+        duration_secs: Math.round((s.end - s.start) / 1000), language: lang, caller_type: null, status: 'done',
+        call_successful: null, sentiment: null, summary: null, transcript: s.turns, analysis: null,
+      };
+      db.calls.push(call);
+      callById.set(id, call);
+    }
+  }
+
+  // ---- Phone line (exact, from the phone team's tables) ----
+  const phoneConvs = [...(raw.phoneConvs ?? [])].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  // Names: ONLY what was given in that conversation (booking attendee, ticket caller, handover caller).
+  // Never the phone contact's name: test numbers are shared, so a number's saved name can belong to someone else.
+  const nameInCall = new Map<string, string>();
+  for (const x of [...raw.bookings.map((b) => ({ c: b.conversationId, n: b.attendeeName })), ...raw.requests.map((r) => ({ c: r.conversationId, n: r.callerName })), ...raw.handovers.map((h) => ({ c: h.conversationId, n: h.callerName }))])
+    if (x.c && x.n && !nameInCall.has(x.c)) nameInCall.set(x.c, x.n);
+  for (const [i, pc] of phoneConvs.entries()) {
+    let c = callById.get(pc.conversation_id);
+    if (!c) {
+      c = {
+        id: pc.conversation_id, agent_id: null, channel: 'phone', started_at: pc.created_at, ended_at: null, duration_secs: null,
+        language: null, caller_type: null, status: 'done', call_successful: null, sentiment: null, summary: null, transcript: null, analysis: null,
+      };
+      db.calls.push(c);
+      callById.set(c.id, c);
+    }
+    c.channel = 'phone';
+    c.phone = pc.phone;
+    c.caller_name = c.caller_name ?? nameInCall.get(pc.conversation_id) ?? null;
+    // The phone chat (texts / voice notes) around this conversation, until the next conversation on the same number.
+    if (!c.transcript?.length) {
+      const start = Date.parse(pc.created_at) - 120e3;
+      const next = phoneConvs.slice(i + 1).find((x) => x.phone === pc.phone);
+      const end = next ? Date.parse(next.created_at) - 120e3 : Infinity;
+      const msgs = (raw.phoneMessages ?? [])
+        .filter((m) => m.phone === pc.phone && m.text && Date.parse(m.ts) >= start && Date.parse(m.ts) < end)
+        .sort((a, b) => a.seq - b.seq);
+      if (msgs.length)
+        c.transcript = msgs.map((m) => ({
+          role: m.from_who === 'agent' ? ('agent' as const) : ('user' as const),
+          message: m.kind === 'voice' ? `(voice note) ${m.text}` : (m.text as string),
+          time_in_call_secs: Math.max(0, Math.round((Date.parse(m.ts) - Date.parse(pc.created_at)) / 1000)),
+        }));
+    }
+    if (!c.language && c.transcript?.length) c.language = c.transcript.some((t) => isArabic(t.message ?? '')) ? 'ar' : 'en';
+  }
+
+  // Rings = HALA calling someone (appointment reminders, callbacks). Link each to the conversation it started
+  // (same number, within 3 minutes) and to the booking it is about.
+  const bookingsOut = new Map<string, { status: string; at: string }>();
+  for (const ring of raw.rings ?? []) {
+    const kind = (ring.kind ?? 'call').replace(/_/g, ' ');
+    const label = kind.charAt(0).toUpperCase() + kind.slice(1);
+    const t = Date.parse(ring.created_at);
+    const conv = phoneConvs.find((pc) => pc.phone === ring.phone && Date.parse(pc.created_at) >= t && Date.parse(pc.created_at) - t < 3 * 60e3);
+    const call = conv ? callById.get(conv.conversation_id) : undefined;
+    if (call) {
+      call.direction = 'outbound';
+      call.outbound_reason = label;
+      call.started_at = new Date(Math.min(t, Date.parse(call.started_at))).toISOString();
+    }
+    const ref = `${ring.reason ?? ''} ${ring.nudge_key ?? ''}`.match(/HALA-\d+/)?.[0];
+    const r = ref ? threads.get(ref) : undefined;
+    const step = `HALA called: ${label.toLowerCase()} (${ring.status ?? 'sent'})`;
+    if (r?.thread) {
+      r.thread.steps.push({ at: ring.created_at, label: step, call_id: call?.id ?? null });
+      if (call && !r.thread.calls.includes(call.id)) r.thread.calls.push(call.id);
+      r.thread.steps.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+      r.thread.calls.sort((a, b) => Date.parse(callById.get(a)?.started_at ?? '') - Date.parse(callById.get(b)?.started_at ?? ''));
+    }
+    if (ref) bookingsOut.set(ref, { status: ring.status ?? 'sent', at: ring.created_at });
+    db.events.push({
+      id: ++eventId,
+      call_id: call?.id ?? null,
+      created_at: ring.created_at,
+      type: 'callback_scheduled',
+      service: r?.service ?? null,
+      payload: {
+        // The person on the booking HALA called about (not the number's saved contact name).
+        detail: `HALA called ${(ref && raw.bookings.find((b) => b.ref === ref)?.attendeeName) || 'the caller'}: ${label.toLowerCase()}${ref ? ` · ${ref}` : ''} · ${ring.status ?? 'sent'}`,
+        request_id: r?.id,
+        source_id: ring.id,
+      },
+    });
+  }
+
+  for (const b of db.bookings) b.reminder = bookingsOut.get(b.id) ?? null;
+
+  for (const c of db.calls) if (!c.caller_name && nameInCall.has(c.id)) c.caller_name = nameInCall.get(c.id)!;
+
+  // Phone fallback when the phone tables aren't readable: a phone number was linked just before the conversation, or the same number was used.
+  const phoneLinks = raw.events.filter((e) => e.type === 'phone_linked').map((e) => ({ t: Date.parse(e.ts), digits: last4(e.data?.phone) }));
+  const contactsByConv = new Map<string, string[]>();
+  for (const x of [...raw.bookings, ...raw.requests, ...raw.handovers])
+    if (x.conversationId) contactsByConv.set(x.conversationId, [...(contactsByConv.get(x.conversationId) ?? []), last4(x.contact)]);
+  const candidates = db.calls
+    .filter((c) => c.channel !== 'robot' && !(c.agent_id && c.agent_id === agents.web))
+    .map((c) => ({ c, t: firstTs.get(c.id) ?? Date.parse(c.started_at) }))
+    .sort((x, y) => x.t - y.t);
+  if (!phoneConvs.length) for (const p of phoneLinks) {
+    // The phone call is the first conversation that starts within 5 minutes of the number being linked.
+    const next = candidates.find((x) => x.t > p.t && x.t - p.t < 5 * 60e3);
+    if (next) next.c.channel = 'phone';
+    // Any conversation that used the same phone number.
+    if (p.digits) for (const x of candidates) if ((contactsByConv.get(x.c.id) ?? []).includes(p.digits)) x.c.channel = 'phone';
+  }
+  for (const id of outboundCalls) {
+    const c = callById.get(id);
+    if (c) c.channel = 'phone';
+  }
+  // A follow-up call in the same case as a phone call is a phone call too (unless it was on the robot).
+  for (const r of db.requests) {
+    const calls = r.thread?.calls ?? [];
+    if (!calls.some((id) => callById.get(id)?.channel === 'phone')) continue;
+    for (const id of calls) {
+      const c = callById.get(id);
+      if (c && c.channel === 'web') c.channel = 'phone';
+    }
+  }
+
+  // The agent's own sentiment score (hala_events.average_sentiment): latest value per conversation wins over
+  // ElevenLabs-less defaults; ElevenLabs sentiment, when present, is kept.
+  const latestScore = new Map<string, { t: number; v: number }>();
+  for (const e of raw.events) {
+    const v = e.averageSentiment;
+    if (!e.conversationId || v == null || !Number.isFinite(v)) continue;
+    const t = Date.parse(e.ts);
+    const prev = latestScore.get(e.conversationId);
+    if (!prev || t > prev.t) latestScore.set(e.conversationId, { t, v });
+  }
+  for (const [id, { v }] of latestScore) {
+    const c = callById.get(id);
+    if (c && c.mood?.source !== 'elevenlabs')
+      c.mood = { label: sentimentLabel(v), source: 'agent', detail: `HALA sentiment score ${Math.round(v * 100) / 100}`, score: v };
+  }
+
+  // HALA's own signal: it handed over because the caller was upset.
+  for (const h of raw.handovers) {
+    const c = h.conversationId ? callById.get(h.conversationId) : undefined;
+    if (c && !c.mood && h.reason === 'upset_caller') c.mood = { label: 'negative', source: 'hala', detail: 'HALA flagged the caller as upset and handed over' };
+  }
+
   db.handovers = raw.handovers.map(
     (h): Handover => ({
       id: h.id,
@@ -478,6 +771,9 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
       status: h.status === 'open' ? 'waiting' : h.status === 'taken' ? 'picked_up' : 'resolved',
       context: [h.callerName && `${h.callerName}${h.contact ? ` (${h.contact})` : ''}`, h.summary].filter(Boolean).join(' — '),
       created_at: h.createdAt,
+      caller_name: h.callerName ?? (h.conversationId ? callById.get(h.conversationId)?.caller_name : null) ?? null,
+      contact: h.contact ?? null,
+      language: h.language,
     }),
   );
   return db;
@@ -500,7 +796,7 @@ export function createTeamSource(): DataSource {
     if (!proxy.talk) return { ok: false as const, why: 'HALA_ADMIN_KEY not set' };
     try {
       const [bookings, requests, handovers, events] = await Promise.all(
-        (['bookings', 'requests', 'handovers', 'events'] as const).map((k) => getJson<unknown[]>(`/hala-api/api/admin/${k}`)),
+        (['bookings', 'requests', 'handovers', 'events'] as const).map((k) => getJson<unknown[]>('hala', `/api/admin/${k}`)),
       );
       return { ok: true as const, bookings: bookings as TBooking[], requests: requests as TRequest[], handovers: handovers as THandover[], events: events as TEvent[] };
     } catch (e) {
@@ -510,7 +806,7 @@ export function createTeamSource(): DataSource {
 
   /** Supabase hala_* tables, read directly (service key added by the guarded dev-server proxy). */
   type Row = Record<string, unknown>;
-  const sbGet = (table: string, order: string) => getJson<Row[]>(`/sb-api/${table}?select=*&order=${order}.desc&limit=1000`);
+  const sbGet = (table: string, order: string) => getJson<Row[]>('sb', `/${table}?select=*&order=${order}.desc&limit=1000`);
   const fetchSupabase = async () => {
     if (!proxy.supabase) return { ok: false as const, why: 'SUPABASE_URL / SUPABASE_SERVICE_KEY not set' };
     try {
@@ -546,9 +842,24 @@ export function createTeamSource(): DataSource {
             status: x.status === 'taken' ? 'taken' : x.status === 'closed' ? 'closed' : 'open', createdAt: str(x.created_at),
           }),
         ),
-        events: e.map((x): TEvent => ({ id: str(x.id), ts: str(x.ts), conversationId: o(x.conversation_id), type: str(x.type), data: (x.data as Row) ?? {} })),
+        events: e.map(
+          (x): TEvent => ({
+            id: str(x.id),
+            ts: str(x.ts),
+            conversationId: o(x.conversation_id),
+            type: str(x.type),
+            data: (x.data as Row) ?? {},
+            averageSentiment: x.average_sentiment == null || x.average_sentiment === '' ? null : Number(x.average_sentiment),
+          }),
+        ),
         // Migration 002 may not be run yet: then Teach answers are simply empty.
         answers: (await sbGet('hala_knowledge_answers', 'updated_at').catch(() => null)) as TAnswer[] | null,
+        robotLogs: ((await sbGet('hala_robot_logs', 'ts').catch(() => null)) ?? []) as unknown as TRobotLog[],
+        // Phone line tables: optional, the dashboard works without them.
+        phoneConvs: ((await sbGet('hala_phone_conversations', 'created_at').catch(() => null)) ?? []) as unknown as TPhoneConv[],
+        phoneMessages: ((await sbGet('hala_phone_messages', 'ts').catch(() => null)) ?? []) as unknown as TPhoneMsg[],
+        rings: ((await sbGet('hala_phone_rings', 'created_at').catch(() => null)) ?? []) as unknown as TRing[],
+        contacts: ((await sbGet('hala_phone_contacts', 'last_seen_at').catch(() => null)) ?? []) as unknown as TContact[],
       };
     } catch (err) {
       const msg = (err as Error).message;
@@ -560,7 +871,7 @@ export function createTeamSource(): DataSource {
   };
 
   const sbPatch = async (path: string, body: Row) => {
-    await getJson(`/sb-api/${path}`, {
+    await getJson('sb', `/${path}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
       body: JSON.stringify(body),
@@ -579,7 +890,7 @@ export function createTeamSource(): DataSource {
         Object.keys(CRITERIA).forEach((c) => p.append('evaluation_criteria_ids', c));
         return p.toString();
       };
-      const lists = await Promise.all(ids.map((id) => getJson<{ conversations: ElSummary[] }>(`/el-api/v1/convai/conversations?${qs(id)}`)));
+      const lists = await Promise.all(ids.map((id) => getJson<{ conversations: ElSummary[] }>('el', `/v1/convai/conversations?${qs(id)}`)));
       const conversations = lists.flatMap((l) => l.conversations ?? []);
       // Transcripts for the newest 40; finished ones never change, so they are cached.
       const want = [...conversations]
@@ -590,7 +901,7 @@ export function createTeamSource(): DataSource {
         await Promise.all(
           want.slice(i, i + 4).map(async (c) => {
             try {
-              details.set(c.conversation_id, await getJson<ElDetail>(`/el-api/v1/convai/conversations/${c.conversation_id}`));
+              details.set(c.conversation_id, await getJson<ElDetail>('el', `/v1/convai/conversations/${c.conversation_id}`));
             } catch {
               /* keep the summary row without a transcript */
             }
@@ -617,7 +928,8 @@ export function createTeamSource(): DataSource {
               : sbRes.why,
           },
           ...(talkRes ? [{ label: 'Agent server', ok: talkRes.ok, detail: talkRes.ok ? `${talkRes.events.length} events · ${proxy.talkUrl}` : talkRes.why }] : []),
-          { label: 'ElevenLabs', ok: el.ok, detail: el.ok ? `${el.conversations.length} conversations` : el.why },
+          // Only feeds that are configured: a missing ElevenLabs key isn't an error, the feature just isn't on.
+          ...(proxy.eleven ? [{ label: 'ElevenLabs', ok: el.ok, detail: el.ok ? `${el.conversations.length} conversations` : el.why }] : []),
         ];
         return (lastDb = mapTeamData(
           {
@@ -628,6 +940,11 @@ export function createTeamSource(): DataSource {
             conversations: el.ok ? el.conversations : [],
             details,
             answers: sbRes.ok ? sbRes.answers ?? [] : [],
+            robotLogs: sbRes.ok ? sbRes.robotLogs : [],
+            phoneConvs: sbRes.ok ? sbRes.phoneConvs : [],
+            phoneMessages: sbRes.ok ? sbRes.phoneMessages : [],
+            rings: sbRes.ok ? sbRes.rings : [],
+            contacts: sbRes.ok ? sbRes.contacts : [],
           },
           agents,
         ));
@@ -643,7 +960,7 @@ export function createTeamSource(): DataSource {
 
   const tool = async (name: string, body: Record<string, unknown>) => {
     if (!proxy.tools) throw new Error('HALA_TOOL_SECRET is not set for the dashboard, so it cannot change bookings.');
-    const res = await getJson<{ ok: boolean; message?: string }>(`/hala-api/api/tools/${name}`, {
+    const res = await getJson<{ ok: boolean; message?: string }>('hala', `/api/tools/${name}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -657,12 +974,12 @@ export function createTeamSource(): DataSource {
   };
 
   /** Upsert one hala_knowledge_answers row per question (unique on question_norm). */
-  const saveAnswer = async (gapId: string, fields: Row) => {
+  const saveAnswer = async (gapId: string, fields: Row, questionText?: string) => {
     if (!proxy.supabase) return notYet('Saving an answer for the agent')();
-    const gap = lastDb?.knowledge_gaps.find((g) => g.id === gapId);
+    const gap = questionText ? { question: questionText, service: fields.service_id as string | null } : lastDb?.knowledge_gaps.find((g) => g.id === gapId);
     if (!gap) throw new Error('Question not found. Refresh and try again.');
     const now = new Date().toISOString();
-    await getJson('/sb-api/hala_knowledge_answers?on_conflict=question_norm', {
+    await getJson('sb', '/hala_knowledge_answers?on_conflict=question_norm', {
       method: 'POST',
       headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify({
@@ -691,6 +1008,8 @@ export function createTeamSource(): DataSource {
     getCall: async (id) => buildCallDetail(await load(), id),
     getInsights: async (f) => computeInsights(await load(), f),
     getConversations: async (f, q) => buildConversations(await load(), f, q),
+    getDayStats: async (f) => buildDayStats(await load(), f),
+    getHandoverAlert: async (id) => buildHandoverAlert(await load(), id),
     getLatestCall: async (f) => buildLatestCall(await load(), f),
 
     async updateBooking(id, patch) {
@@ -707,7 +1026,7 @@ export function createTeamSource(): DataSource {
             throw new Error(/23505|duplicate/.test(e.message) ? 'That slot is already taken.' : e.message);
           });
       }
-      return notYet('Marking a booking completed')();
+      return notYet('Changing this booking')();
     },
     async updateHandover(id, status) {
       if (!proxy.supabase) return notYet('Changing a handover status')();
@@ -722,7 +1041,6 @@ export function createTeamSource(): DataSource {
       if (patch.note !== undefined) body.resolution = patch.note;
       return sbPatch(`hala_requests?ref=eq.${encodeURIComponent(id.slice(TICKET_PREFIX.length))}`, body).catch(migration002);
     },
-    logFollowup: notYet('Logging a follow-up'),
     answerGap: (id, a) =>
       saveAnswer(id, {
         answer_en: a.answer_en,
@@ -733,13 +1051,26 @@ export function createTeamSource(): DataSource {
         answered_at: new Date().toISOString(),
       }),
     setGapStatus: (id, status) => saveAnswer(id, { status }),
+    addKnowledge: (e) =>
+      saveAnswer(
+        '',
+        {
+          answer_en: e.answer_en,
+          answer_ar: e.answer_ar || null,
+          service_id: e.service === 'none' || e.service === 'general' ? null : e.service,
+          status: 'answered',
+          answered_by: 'dashboard admin',
+          answered_at: new Date().toISOString(),
+        },
+        e.question.trim(),
+      ),
 
     subscribe(onChange) {
       listeners.add(onChange);
       if (!es && proxy.talk) {
         // Live agent events (bookings, handovers, ...) the moment they happen.
         let debounce: ReturnType<typeof setTimeout> | null = null;
-        es = new EventSource('/hala-api/api/events');
+        es = new EventSource(apiUrl('hala', '/api/events'));
         es.addEventListener('hala', () => {
           if (debounce) clearTimeout(debounce);
           debounce = setTimeout(refresh, 400);

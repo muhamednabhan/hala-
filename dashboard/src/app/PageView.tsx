@@ -1,3 +1,4 @@
+import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { PAGES, registry, type PageId } from '../widgets/registry';
 import type { WidgetSize } from '../widgets/types';
 
@@ -13,7 +14,7 @@ export function PageView({ page }: { page: PageId }) {
   if (!widgets.length) {
     const meta = PAGES.find((p) => p.id === page);
     return (
-      <div className="rounded-xl border border-dashed border-gold-300 bg-white p-12 text-center text-stone-500">
+      <div className="rounded-card border border-dashed border-slate-300 bg-white p-12 text-center text-slate-600">
         <div className="font-display text-2xl font-semibold text-ink">{meta?.label}</div>
         <div className="mt-1">Coming in build step {meta?.buildStep}.</div>
       </div>
@@ -22,12 +23,11 @@ export function PageView({ page }: { page: PageId }) {
   return (
     <div className="grid grid-cols-12 items-start gap-5">
       {widgets.map(({ id, title, size, Component }) => (
-        <section key={id} className={`${SPAN[size]} rounded-xl border border-stone-200 bg-white p-5 shadow-card`}>
-          <h2 className="mb-4 flex items-center gap-2.5 text-[12px] font-semibold uppercase tracking-[0.14em] text-stone-600">
-            <span className="h-4 w-[3px] rounded-full bg-gold-500" />
-            {title}
-          </h2>
-          <Component />
+        <section key={id} className={`${SPAN[size]} rounded-card border border-slate-200 bg-white p-6 shadow-card`}>
+          <h2 className="mb-4 font-display text-[24px] font-bold leading-tight text-ink">{title}</h2>
+          <ErrorBoundary label={title}>
+            <Component />
+          </ErrorBoundary>
         </section>
       ))}
     </div>

@@ -216,6 +216,9 @@ export function addCall({ rng, db }: Ctx, startMs: number, mix: OutcomeMix, now 
           status: now - t > 2 * 3600e3 ? rng.pick(['resolved', 'picked_up'] as const) : 'waiting',
           context: `${name} (${contact}) — ${question}`,
           created_at: iso(t),
+          caller_name: name,
+          contact,
+          language: lang,
         });
         pushEvent(db, callId, t, 'handover', svc.key, { request_id: reqId, detail: 'handed to a human, callback promised' });
       } else {
@@ -246,6 +249,9 @@ export function addCall({ rng, db }: Ctx, startMs: number, mix: OutcomeMix, now 
           status: now - t > 2 * 3600e3 ? rng.pick(['resolved', 'resolved', 'picked_up'] as const) : 'waiting',
           context: `${name} (${contact}) — ${question}`,
           created_at: iso(t),
+          caller_name: name,
+          contact,
+          language: lang,
         });
         pushEvent(db, callId, t, 'handover', svc.key, { request_id: reqId, detail });
       } else {
@@ -294,8 +300,14 @@ export function addCall({ rng, db }: Ctx, startMs: number, mix: OutcomeMix, now 
     status: 'done',
     call_successful: anyBad ? 'failure' : 'success',
     sentiment: anyBad ? rng.pick(['impatient', 'neutral', 'angry']) : rng.pick(['calm', 'neutral', 'calm']),
+    mood: null,
     summary: `${name} (${callerType.replace('_', ' ')}) asked about ${labels.join(' + ')}.`,
     transcript,
+  };
+  call.mood = {
+    label: call.sentiment === 'calm' ? 'positive' : call.sentiment === 'neutral' ? 'neutral' : 'negative',
+    source: 'demo',
+    detail: `Simulated (${call.sentiment})`,
   };
   db.calls.push(call);
 

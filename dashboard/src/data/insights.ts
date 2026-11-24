@@ -71,6 +71,7 @@ export function computeInsights(db: Db, f: Filters): Insight[] {
       quote: gap.question,
       detail: `Asked ${gap.times_asked} times (${serviceLabel(gap.service)}). One admin answer lets the agent resolve it on every future call.`,
       metric: `${gap.times_asked}×`,
+      to: { page: 'teach', tab: 'waiting' },
     });
   }
 
@@ -91,6 +92,7 @@ export function computeInsights(db: Db, f: Filters): Insight[] {
         title: `${serviceLabel(worst.key)} resolves only ${worst.rate}%`,
         detail: `Against ${overall}% overall, across ${worst.rs.length} requests.${top ? ` Main blocker: ${REASON_LABEL[top[0] as UnsolvedReason] ?? top[0]}.` : ''}`,
         metric: `${worst.rate}%`,
+        to: { page: 'requests', status: 'all', service: worst.key },
       });
     }
     if (best.key !== worst.key && best.rate >= overall) {
@@ -100,6 +102,7 @@ export function computeInsights(db: Db, f: Filters): Insight[] {
         title: `${serviceLabel(best.key)} is handled end-to-end`,
         detail: `${best.rate}% of ${best.rs.length} requests solved by the agent without staff. It is the strongest service right now.`,
         metric: `${best.rate}%`,
+        to: { page: 'requests', status: 'all', service: best.key },
       });
     }
   }
@@ -117,6 +120,7 @@ export function computeInsights(db: Db, f: Filters): Insight[] {
       title: `${pct(top[1], unsolved.length)}% of unsolved requests: ${REASON_LABEL[reason]}`,
       detail: REASON_FIX[reason],
       metric: String(top[1]),
+      to: reason === 'unknown_answer' ? { page: 'teach', tab: 'waiting' } : { page: 'requests', status: 'unsolved' },
     });
   }
 
@@ -166,6 +170,7 @@ export function computeInsights(db: Db, f: Filters): Insight[] {
         ? `${stillOpen} of them still have an open or unsolved request. Following up first would prevent another call.`
         : 'All of their requests are now solved.',
       metric: String(repeat.length),
+      to: { page: 'requests', status: 'needs_followup' },
     });
   }
 
