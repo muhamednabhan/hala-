@@ -61,7 +61,7 @@ function ConversationsView() {
                 >
                   <td className="whitespace-nowrap py-2.5 pr-3 tabular-nums text-slate-600">{fmtDateTime(c.started_at)}</td>
                   <td className="py-2.5 pr-3">
-                    <ChannelBadge channel={c.channel} />
+                    <ChannelBadge channel={c.channel} source={c.channel_source} />
                     {c.direction === 'outbound' && (
                       <div className="mt-1">
                         <OutboundBadge />

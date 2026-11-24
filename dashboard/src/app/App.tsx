@@ -3,6 +3,7 @@ import { AUTH_EVENT, logout, serverStatus, type ServerStatus } from '../data/api
 import { liveAvailable, switchMode } from '../data/index';
 import type { DataSource } from '../data/source';
 import { DsoLockup } from '../ui/Badges';
+import { Button } from '../ui/controls';
 import { PAGES, type PageId } from '../widgets/registry';
 import { CallDrawer } from './CallDrawer';
 import { DataProvider, useQuery } from './DataContext';
@@ -174,6 +175,19 @@ export function App({ source }: { source: DataSource }) {
               <ModeSwitch mode={source.mode} auth={status?.auth} />
             </div>
           </div>
+          {source.mode === 'mock' && (
+            <div role="note" className="mb-5 flex flex-wrap items-center gap-3 rounded-card border-2 border-amber-400 bg-amber-50 px-4 py-3 text-amber-900">
+              <span className="rounded-full bg-amber-500 px-2.5 py-0.5 font-display text-[13px] font-bold uppercase tracking-[0.12em] text-white">Demo data</span>
+              <span className="text-sm">
+                Simulated calls with <b>made-up callers</b>. Nothing on this screen is real.
+              </span>
+              {liveAvailable() && (
+                <Button size="xs" variant="primary" className="ml-auto" onClick={() => switchMode('live')}>
+                  Switch to live data
+                </Button>
+              )}
+            </div>
+          )}
           <div className="mb-6">
             <FilterBar />
           </div>

@@ -12,13 +12,15 @@ export const liveAvailable = () => {
 };
 
 /**
- * Which data to show: the header switch (remembered per browser) wins, then VITE_DATA_MODE, then demo.
+ * Which data to show: the header switch (for this tab session only) wins, then VITE_DATA_MODE, then demo.
  * Demo data always works, so a pitch never depends on the network.
  */
 export function currentMode(): Mode {
   let saved: string | null = null;
   try {
-    saved = localStorage.getItem(KEY);
+    // Session-only on purpose: someone who tried Demo once must not keep seeing made-up callers on later visits.
+    localStorage.removeItem(KEY); // older versions remembered it forever
+    saved = sessionStorage.getItem(KEY);
   } catch {
     /* private mode */
   }
@@ -28,7 +30,7 @@ export function currentMode(): Mode {
 
 export function switchMode(mode: Mode) {
   try {
-    localStorage.setItem(KEY, mode);
+    sessionStorage.setItem(KEY, mode);
   } catch {
     /* private mode: falls back to VITE_DATA_MODE */
   }

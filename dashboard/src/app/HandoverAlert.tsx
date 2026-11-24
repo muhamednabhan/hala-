@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { turnText } from '../data/compute';
 import { HANDOVER_REASON_LABEL, serviceLabel } from '../data/services';
 import type { HandoverAlert as Alert } from '../data/types';
-import { ChannelBadge, LangBadge, StatusPill } from '../ui/Badges';
+import { ChannelBadge, DemoTag, LangBadge, StatusPill } from '../ui/Badges';
 import { Button, useAction } from '../ui/controls';
 import { fmtAge, fmtDateTime } from '../ui/format';
 import { useData, useQuery } from './DataContext';
@@ -124,6 +124,7 @@ function AlertCard({ id, more, onClose }: { id: string; more: number; onClose: (
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" />
           </span>
+          {source.mode === 'mock' && <DemoTag />}
           <span className="font-display text-[15px] font-semibold uppercase tracking-[0.14em]">Handover requested</span>
           <span className="ml-auto text-xs tabular-nums opacity-90">waiting {fmtAge(h.created_at)}</span>
           <button type="button" onClick={onClose} aria-label="Dismiss" className="ml-2 text-lg leading-none opacity-80 hover:opacity-100">
@@ -137,6 +138,7 @@ function AlertCard({ id, more, onClose }: { id: string; more: number; onClose: (
             <div className="min-w-0">
               <div id="ho-title" className="font-display text-[30px] font-bold leading-tight text-ink">
                 {history.name ?? 'Name not given in this call'}
+                {source.mode === 'mock' && history.name && <span className="ml-2 align-middle text-sm font-normal text-amber-700">(made-up demo caller)</span>}
               </div>
               <div className="mt-0.5 text-sm tabular-nums text-slate-500">{history.contact ?? 'no contact collected'}</div>
             </div>

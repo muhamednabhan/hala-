@@ -217,6 +217,7 @@ export function buildConversations(db: Db, f: Filters, query = '', limit = 150):
       caller_name: c.caller_name ?? null,
       direction: c.direction,
       outbound_reason: c.outbound_reason ?? null,
+      channel_source: c.channel_source,
     });
     if (rows.length >= limit) break;
   }

@@ -152,3 +152,43 @@ describe('sentiment', () => {
     expect(db.calls.find((c) => c.id === 'w1')?.mood ?? null).toBeNull(); // no score, no guess
   });
 });
+
+describe('guardrail: live mode never invents data', () => {
+  /** Every string anywhere in the raw input (rows from Supabase / ElevenLabs). */
+  const strings = (v: unknown, out = new Set<string>()): Set<string> => {
+    if (typeof v === 'string') out.add(v);
+    else if (Array.isArray(v)) v.forEach((x) => strings(x, out));
+    else if (v instanceof Map) v.forEach((x) => strings(x, out));
+    else if (v && typeof v === 'object') Object.values(v).forEach((x) => strings(x, out));
+    return out;
+  };
+
+  it('every name, number and sentiment shown comes from the raw rows', () => {
+    const input = raw();
+    const known = strings(input);
+    const db = mapTeamData(input, { web: '', robot: '' });
+
+    const names = [
+      ...db.calls.map((c) => c.caller_name),
+      ...db.bookings.map((b) => b.customer_name),
+      ...db.handovers.map((h) => h.caller_name),
+    ].filter(Boolean) as string[];
+    for (const n of names) expect(known, `name "${n}" is not in the data`).toContain(n);
+
+    const numbers = [...db.requests.map((r) => r.contact), ...db.bookings.map((b) => b.contact), ...db.calls.map((c) => c.phone)].filter(Boolean) as string[];
+    for (const n of numbers) expect(known, `number "${n}" is not in the data`).toContain(n);
+
+    // Sentiment only with a real source, never a default.
+    for (const c of db.calls) if (c.mood) expect(['agent', 'elevenlabs', 'hala']).toContain(c.mood.source);
+
+    // Nothing from demo data leaks into live.
+    const demoNames = ['Priya Nair', 'Omar Khalid', 'Ahmed Al Mansoori', 'Fatima Hassan', 'Rajesh Kumar'];
+    for (const n of names) expect(demoNames).not.toContain(n);
+  });
+
+  it('a call where nobody gave a name has no name', () => {
+    const db = mapTeamData(raw(), { web: '', robot: '' });
+    // w2 / w3: callers asked a question and never gave a name.
+    for (const id of ['w2', 'w3']) expect(db.calls.find((c) => c.id === id)?.caller_name ?? null).toBeNull();
+  });
+});

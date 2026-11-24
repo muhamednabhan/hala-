@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { serviceLabel } from '../data/services';
 import type { Call, Db, RequestStatus } from '../data/types';
-import { ChannelBadge, MoodBadge, StatusPill } from '../ui/Badges';
+import { ChannelBadge, DemoTag, MoodBadge, StatusPill } from '../ui/Badges';
 import { fmtDuration } from '../ui/format';
 import { useData, useQuery } from './DataContext';
 import { alertsEnabled } from './HandoverAlert';
@@ -30,7 +30,7 @@ function summarise(db: Db, call: Call): Ended {
 }
 
 export function CallEndedCards() {
-  const { openCall } = useData();
+  const { openCall, source } = useData();
   const { data } = useQuery((s) => s.getSnapshot(ALL));
   const known = useRef<Map<string, string> | null>(null); // call id -> status last seen
   const [card, setCard] = useState<Ended | null>(null);
@@ -63,6 +63,7 @@ export function CallEndedCards() {
     <div className="fixed bottom-5 left-5 z-[75] w-[360px] max-w-[calc(100vw-2.5rem)] md:left-[260px]" role="status">
       <div className="overflow-hidden rounded-card bg-white shadow-2xl ring-1 ring-slate-200">
         <div className="flex items-center gap-2 bg-midnight px-4 py-2 text-white">
+          {source.mode === 'mock' && <DemoTag />}
           <span className="font-display text-[14px] font-semibold uppercase tracking-[0.14em]">Call ended</span>
           <span className="ml-auto text-xs text-white/70">{fmtDuration(call.duration_secs)}</span>
           <button type="button" onClick={() => setCard(null)} aria-label="Dismiss" className="ml-2 text-lg leading-none opacity-80 hover:opacity-100">

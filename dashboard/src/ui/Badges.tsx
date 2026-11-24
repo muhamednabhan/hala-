@@ -30,10 +30,10 @@ const CHANNEL: Record<string, { label: string; icon: string; cls: string }> = {
 };
 
 /** Where the conversation happened: the robot at HALA reception, a phone call, or the web talk page. */
-export function ChannelBadge({ channel }: { channel: string | null | undefined }) {
+export function ChannelBadge({ channel, source }: { channel: string | null | undefined; source?: string }) {
   const c = CHANNEL[channel ?? ''] ?? CHANNEL.web;
   return (
-    <span className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ring-1 ${c.cls}`}>
+    <span title={source ? `${c.label} · from ${source}` : c.label} className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ring-1 ${c.cls}`}>
       <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d={c.icon} />
       </svg>
@@ -69,6 +69,15 @@ export function MoodBadge({ mood }: { mood: { label: string; detail: string } | 
         <path d="M9 9.5h.01M15 9.5h.01" />
       </svg>
       {m.label}
+    </span>
+  );
+}
+
+/** Marks anything from demo mode, so made-up data can never be mistaken for real callers. */
+export function DemoTag({ className = '' }: { className?: string }) {
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-full bg-amber-500 px-2 py-0.5 font-display text-[12px] font-bold uppercase tracking-[0.12em] text-white ${className}`}>
+      Demo
     </span>
   );
 }

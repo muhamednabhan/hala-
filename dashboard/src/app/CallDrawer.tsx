@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { serviceLabel } from '../data/services';
 import type { CallDetail } from '../data/types';
-import { ChannelBadge, LangBadge, MoodBadge, OutboundBadge, StatusPill } from '../ui/Badges';
+import { ChannelBadge, DemoTag, LangBadge, MoodBadge, OutboundBadge, StatusPill } from '../ui/Badges';
 import { fmtDateTime, fmtDuration } from '../ui/format';
 import { Transcript } from '../ui/Transcript';
 import { useData } from './DataContext';
@@ -69,7 +69,9 @@ export function CallDrawer({ callId, onClose }: { callId: string; onClose: () =>
           {detail && (
             <div className="space-y-6">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-navy-700">Conversation</div>
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-navy-700">
+                  Conversation {source.mode === 'mock' && <DemoTag />}
+                </div>
                 <h2 className="mt-1 pr-8 font-display text-[30px] font-bold leading-tight text-ink">{detail.call.summary ??
                     (detail.requests.length
                       ? [...new Set(detail.requests.map((r) => serviceLabel(r.service)))].join(' + ')
@@ -77,7 +79,7 @@ export function CallDrawer({ callId, onClose }: { callId: string; onClose: () =>
                         ? 'Call in progress'
                         : 'Conversation')}</h2>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                  <ChannelBadge channel={detail.call.channel} />
+                  <ChannelBadge channel={detail.call.channel} source={detail.call.channel_source} />
                   {detail.call.direction === 'outbound' && <OutboundBadge reason={detail.call.outbound_reason} />}
                   <LangBadge lang={detail.call.language} />
                   {detail.call.caller_name && <span className="font-medium text-ink">{detail.call.caller_name}</span>}

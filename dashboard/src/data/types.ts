@@ -56,6 +56,8 @@ export interface Call {
   caller_name?: string | null;
   /** The number this call came from or went to (phone line). */
   phone?: string | null;
+  /** Where the channel comes from, shown to staff (e.g. "phone line record", "robot log"). */
+  channel_source?: string;
   /** 'outbound' = HALA called the person (reminder / callback). */
   direction?: 'inbound' | 'outbound';
   /** Why HALA called, for outbound calls, e.g. "Appointment reminder". */
@@ -294,6 +296,7 @@ export interface ConversationRow {
   caller_name?: string | null;
   direction?: 'inbound' | 'outbound';
   outbound_reason?: string | null;
+  channel_source?: string;
 }
 
 /** One line of the connection status shown in the header (live mode). */

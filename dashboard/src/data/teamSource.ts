@@ -271,6 +271,7 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
       id: c.conversation_id,
       agent_id: c.agent_id,
       channel: agents.robot && c.agent_id === agents.robot ? 'robot' : 'web',
+      channel_source: agents.robot && c.agent_id === agents.robot ? 'ElevenLabs robot agent' : 'ElevenLabs web agent',
       started_at: new Date(start).toISOString(),
       ended_at: c.status === 'done' ? new Date(start + c.call_duration_secs * 1000).toISOString() : null,
       duration_secs: c.call_duration_secs,
@@ -609,6 +610,7 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
     const lang = s.turns.some((x) => isArabic(x.message)) ? (s.turns.some((x) => x.role === 'user' && !isArabic(x.message)) ? 'mixed' : 'ar') : 'en';
     if (target) {
       target.channel = 'robot';
+      target.channel_source = 'robot log (hala_robot_logs)';
       target.started_at = new Date(Math.min(s.start, Date.parse(target.started_at))).toISOString();
       if (!target.transcript?.length) target.transcript = s.turns;
       if (target.status === 'done') {
@@ -620,7 +622,7 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
       // A robot conversation where the agent didn't call any tool: still a call worth showing.
       const id = `robot:${new Date(s.start).toISOString()}`;
       const call: Call = {
-        id, agent_id: null, channel: 'robot', started_at: new Date(s.start).toISOString(), ended_at: new Date(s.end).toISOString(),
+        id, agent_id: null, channel: 'robot', channel_source: 'robot log (hala_robot_logs)', started_at: new Date(s.start).toISOString(), ended_at: new Date(s.end).toISOString(),
         duration_secs: Math.round((s.end - s.start) / 1000), language: lang, caller_type: null, status: 'done',
         call_successful: null, sentiment: null, summary: null, transcript: s.turns, analysis: null,
       };
@@ -647,6 +649,7 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
       callById.set(c.id, c);
     }
     c.channel = 'phone';
+    c.channel_source = 'phone line record (hala_phone_conversations)';
     c.phone = pc.phone;
     c.caller_name = c.caller_name ?? nameInCall.get(pc.conversation_id) ?? null;
     // The phone chat (texts / voice notes) around this conversation, until the next conversation on the same number.
@@ -709,6 +712,7 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
   for (const b of db.bookings) b.reminder = bookingsOut.get(b.id) ?? null;
 
   for (const c of db.calls) if (!c.caller_name && nameInCall.has(c.id)) c.caller_name = nameInCall.get(c.id)!;
+  for (const c of db.calls) if (!c.channel_source) c.channel_source = 'no robot or phone record: web';
 
   // Phone fallback when the phone tables aren't readable: a phone number was linked just before the conversation, or the same number was used.
   const phoneLinks = raw.events.filter((e) => e.type === 'phone_linked').map((e) => ({ t: Date.parse(e.ts), digits: last4(e.data?.phone) }));
@@ -722,7 +726,10 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
   if (!phoneConvs.length) for (const p of phoneLinks) {
     // The phone call is the first conversation that starts within 5 minutes of the number being linked.
     const next = candidates.find((x) => x.t > p.t && x.t - p.t < 5 * 60e3);
-    if (next) next.c.channel = 'phone';
+    if (next) {
+      next.c.channel = 'phone';
+      next.c.channel_source = 'estimated: started just after a phone was linked';
+    }
     // Any conversation that used the same phone number.
     if (p.digits) for (const x of candidates) if ((contactsByConv.get(x.c.id) ?? []).includes(p.digits)) x.c.channel = 'phone';
   }
@@ -736,7 +743,10 @@ export function mapTeamData(raw: Raw, agents = { web: '', robot: '' }): Db {
     if (!calls.some((id) => callById.get(id)?.channel === 'phone')) continue;
     for (const id of calls) {
       const c = callById.get(id);
-      if (c && c.channel === 'web') c.channel = 'phone';
+      if (c && c.channel === 'web') {
+        c.channel = 'phone';
+        c.channel_source = 'same case as a phone call';
+      }
     }
   }
 
@@ -810,11 +820,20 @@ export function createTeamSource(): DataSource {
   const fetchSupabase = async () => {
     if (!proxy.supabase) return { ok: false as const, why: 'SUPABASE_URL / SUPABASE_SERVICE_KEY not set' };
     try {
-      const [b, r, h, e] = await Promise.all([
+      // Everything in parallel: on Vercel each table is one server-function call, so serial loading adds up.
+      const optional = (table: string, order: string) => sbGet(table, order).catch(() => null);
+      const [b, r, h, e, answers, robotLogs, phoneConvs, phoneMessages, rings, contacts] = await Promise.all([
         sbGet('hala_bookings', 'created_at'),
         sbGet('hala_requests', 'created_at'),
         sbGet('hala_handovers', 'created_at'),
         sbGet('hala_events', 'ts'),
+        // Optional tables: the dashboard works without them.
+        optional('hala_knowledge_answers', 'updated_at'),
+        optional('hala_robot_logs', 'ts'),
+        optional('hala_phone_conversations', 'created_at'),
+        optional('hala_phone_messages', 'ts'),
+        optional('hala_phone_rings', 'created_at'),
+        optional('hala_phone_contacts', 'last_seen_at'),
       ]);
       const o = (x: unknown) => (x == null ? undefined : str(x));
       return {
@@ -853,13 +872,12 @@ export function createTeamSource(): DataSource {
           }),
         ),
         // Migration 002 may not be run yet: then Teach answers are simply empty.
-        answers: (await sbGet('hala_knowledge_answers', 'updated_at').catch(() => null)) as TAnswer[] | null,
-        robotLogs: ((await sbGet('hala_robot_logs', 'ts').catch(() => null)) ?? []) as unknown as TRobotLog[],
-        // Phone line tables: optional, the dashboard works without them.
-        phoneConvs: ((await sbGet('hala_phone_conversations', 'created_at').catch(() => null)) ?? []) as unknown as TPhoneConv[],
-        phoneMessages: ((await sbGet('hala_phone_messages', 'ts').catch(() => null)) ?? []) as unknown as TPhoneMsg[],
-        rings: ((await sbGet('hala_phone_rings', 'created_at').catch(() => null)) ?? []) as unknown as TRing[],
-        contacts: ((await sbGet('hala_phone_contacts', 'last_seen_at').catch(() => null)) ?? []) as unknown as TContact[],
+        answers: answers as unknown as TAnswer[] | null,
+        robotLogs: (robotLogs ?? []) as unknown as TRobotLog[],
+        phoneConvs: (phoneConvs ?? []) as unknown as TPhoneConv[],
+        phoneMessages: (phoneMessages ?? []) as unknown as TPhoneMsg[],
+        rings: (rings ?? []) as unknown as TRing[],
+        contacts: (contacts ?? []) as unknown as TContact[],
       };
     } catch (err) {
       const msg = (err as Error).message;
@@ -914,8 +932,14 @@ export function createTeamSource(): DataSource {
     }
   };
 
+  // A refresh that arrives while a load is still running must NOT throw that load away (on a slow network
+  // that would mean data never arrives): it waits, and one more load runs once this one is done.
+  let loading = false;
+  let refreshAgain = false;
+
   const load = (): Promise<Db> => {
     if (!cache) {
+      loading = true;
       cache = Promise.all([fetchSupabase(), proxy.talk ? fetchTalk() : null, fetchEleven()]).then(([sbRes, talkRes, el]) => {
         // Supabase is the store of record; the agent server's admin API is the fallback.
         const talk = sbRes.ok ? sbRes : talkRes && talkRes.ok ? talkRes : sbRes;
@@ -949,14 +973,29 @@ export function createTeamSource(): DataSource {
           agents,
         ));
       });
+      cache
+        .catch(() => {
+          cache = null; // a failed load is retried on the next refresh
+        })
+        .finally(() => {
+          loading = false;
+          if (refreshAgain) {
+            refreshAgain = false;
+            refresh();
+          }
+        });
     }
     return cache;
   };
 
-  const refresh = () => {
+  function refresh() {
+    if (loading) {
+      refreshAgain = true;
+      return;
+    }
     cache = null;
     listeners.forEach((fn) => fn());
-  };
+  }
 
   const tool = async (name: string, body: Record<string, unknown>) => {
     if (!proxy.tools) throw new Error('HALA_TOOL_SECRET is not set for the dashboard, so it cannot change bookings.');
