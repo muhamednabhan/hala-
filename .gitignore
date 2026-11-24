@@ -9,3 +9,6 @@ dist/
 agent/.data/
 .data/
 *.tsbuildinfo
+
+.vercel
+.env*
