@@ -13,7 +13,9 @@ describe('agent config', () => {
 
   it('uses Arabic as the base language and the multilingual TTS model (gotcha G1)', () => {
     expect(cc.agent.language).toBe('ar')
-    expect(cc.tts.modelId).toBe('eleven_flash_v2_5')
+    // both are multilingual models; the English-only flash v2 would garble Arabic
+    expect(['eleven_flash_v2_5', 'eleven_v3_conversational']).toContain(cc.tts.modelId)
+    expect(buildAgentConfig({ ...opts, voiceModel: 'flash' }).conversationConfig.tts.modelId).toBe('eleven_flash_v2_5')
     expect(cc.languagePresets.en.overrides.agent.language).toBe('en')
   })
   it('opens by saying it is an AI, in both languages', () => {
@@ -71,7 +73,7 @@ describe('agent config', () => {
       expect((c.conversationConfig.agent as any).dynamicVariables).toBeUndefined()
     }
   })
-  it('the phone agent runs the fast, human profile: small model, eager turns, spoken fillers, short greeting', () => {
+  it('the phone agent runs the fast, human profile: small model, eager turns, backchannels, short greeting', () => {
     const c = buildAgentConfig({ ...opts, channel: 'phone' })
     const cc = c.conversationConfig as any
     expect(cc.agent.prompt.llm).toBe('gemini-3.1-flash-lite')
@@ -83,8 +85,9 @@ describe('agent config', () => {
     expect(cc.tts.modelId).toBe('eleven_v3_conversational')
     expect(cc.agent.prompt.prompt).toMatch(/Sound like a person/)
     const tools = cc.agent.prompt.tools as any[]
-    expect(tools.find((t) => t.name === 'find_service').preToolSpeech).toBe('force')
-    expect(tools.find((t) => t.name === 'book_appointment').preToolSpeech).not.toBe('force')
+    // no spoken filler before tools (it comes out in the base language); the caller-language soft timeout covers slow turns
+    expect(tools.every((t) => t.preToolSpeech === 'off')).toBe(true)
+    expect(cc.turn.silenceEndCallTimeout).toBe(45)
     // the greeting is short, and still says it is an AI in both languages
     expect(cc.agent.firstMessage.length).toBeLessThan(140)
     expect(cc.agent.firstMessage).toMatch(/AI assistant/)

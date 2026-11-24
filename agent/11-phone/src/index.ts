@@ -7,6 +7,6 @@ export { createHackClubAi, HACKCLUB_AI_BASE, DEFAULT_AI_MODEL, DEFAULT_AI_MODELS
 export { createSmsService, SmsError, LINKED_TEXT, BAD_CODE_TEXT, AGENT_DOWN_TEXT, type SmsService, type SmsResult, type IncomingText, type Synthesize, type PublishEvent } from './sms'
 export { planNudges, queueNudges, composeOpening, templateBody, acceptable, AI_INTRO, type NudgeCandidate, type PlanOptions } from './nudge'
 export { PHONE_TOOL_SPECS, PHONE_TOOL_NAMES, createPhoneTools, isPhoneTool, type PhoneTools } from './tools'
-export { HUMAN_LLM, HUMAN_TTS_MODEL, PHONE_GREETING, BACKCHANNEL_TERMS, humanTurn, humanTts, SPOKEN_BEFORE_TOOLS, HUMAN_VOICE_PROMPT } from './voice-profile'
+export { HUMAN_LLM, PHONE_GREETING, BACKCHANNEL_TERMS, humanTurn, humanTts, HUMAN_VOICE_PROMPT } from './voice-profile'
 export { PHONE_PROMPT_ADDENDUM, PHONE_DYNAMIC_DEFAULTS } from './prompt'
 export { createSupabasePhoneStore, phoneTablesReady, PHONE_TABLES, type SupabasePhoneOptions } from './supabase-store'

@@ -35,6 +35,8 @@ export const TOOL_NAMES = {
   reschedule: 'reschedule_appointment',
   cancel: 'cancel_appointment',
   checkBooking: 'check_booking',
+  checkRequest: 'check_request',
+  serviceProcess: 'service_process',
   logRequest: 'log_request',
   lookupFact: 'lookup_fact',
   handover: 'handover_to_human'
@@ -57,7 +59,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       "pass 'today', 'tomorrow', a weekday name such as 'thursday', an ISO date YYYY-MM-DD, or 'next_available' for the soonest openings. " +
       'Call this before offering any time to the caller.',
     params: { when: { type: 'string', description: "'today', 'tomorrow', a weekday in English, a YYYY-MM-DD date, or 'next_available'." } },
-    timeoutSecs: 8, preSpeech: 'auto'
+    timeoutSecs: 8, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.book,
@@ -73,7 +75,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       time: { type: 'string', description: 'Appointment start time as HH:MM in 24-hour format, taken from list_slots, e.g. 10:30.' },
       language
     },
-    timeoutSecs: 10, preSpeech: 'auto'
+    timeoutSecs: 10, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.reschedule,
@@ -86,7 +88,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       time: { type: 'string', description: 'New start time, HH:MM 24-hour.' },
       language
     },
-    timeoutSecs: 10, preSpeech: 'auto'
+    timeoutSecs: 10, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.cancel,
@@ -95,12 +97,26 @@ export const TOOL_SPECS: ToolSpec[] = [
       ref: { type: 'string', description: 'The booking reference, e.g. HALA-1001. Digits alone are fine.' },
       language
     },
-    timeoutSecs: 10, preSpeech: 'auto'
+    timeoutSecs: 10, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.checkBooking,
     description: 'Look up an existing appointment by reference, to read its details back or to confirm what a caller already booked.',
     params: { ref: { type: 'string', description: 'The booking reference, e.g. HALA-1001. Digits alone are fine.' } },
+    timeoutSecs: 8, preSpeech: 'off'
+  },
+  {
+    name: TOOL_NAMES.checkRequest,
+    description: 'Look up a logged maintenance request or complaint by its reference (REQ-1001), to read back what was logged.',
+    params: { ref: { type: 'string', description: 'The request reference, e.g. REQ-1001. Digits alone are fine.' } },
+    timeoutSecs: 8, preSpeech: 'off'
+  },
+  {
+    name: TOOL_NAMES.serviceProcess,
+    description:
+      'Get the step-by-step process, who is eligible, the policy and extra facts for ONE service, by its id from the service sheet. ' +
+      'Use only when the caller asks how the process works or who can apply. Documents, fee and time are already in the sheet: do not call this for them.',
+    params: { service_id: { type: 'string', description: 'The service id from the sheet, e.g. visa_new or licence_types.' } },
     timeoutSecs: 8, preSpeech: 'off'
   },
   {
@@ -113,10 +129,11 @@ export const TOOL_SPECS: ToolSpec[] = [
       caller_name: { type: 'string', description: "The caller's name (demo data)." },
       contact: { type: 'string', description: 'A phone number or an email (demo data).' },
       details: { type: 'string', description: 'One or two sentences describing the problem, in the caller\'s own words.' },
-      location: { type: 'string', optional: true, description: 'Unit or office number (demo data), if relevant.' },
+      location: { type: 'string', optional: true, description: 'Building or community name and the unit or office number (demo data), if relevant.' },
+      urgency: { type: 'string', enum: ['emergency', 'routine'], optional: true, description: 'For maintenance: emergency or routine. Ask the caller. Omit for complaints.' },
       language
     },
-    timeoutSecs: 10, preSpeech: 'auto'
+    timeoutSecs: 10, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.lookupFact,

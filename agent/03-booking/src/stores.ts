@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { Booking, EventBus, HalaEvent, Handover, Stores, ServiceRequest } from '@hala/core'
+import type { Booking, EventBus, HalaEvent, Handover, Robot, RobotCommand, RobotLog, Stores, ServiceRequest } from '@hala/core'
 
 interface Snapshot {
   bookings: Booking[]
@@ -9,12 +9,15 @@ interface Snapshot {
   bookingKeys: Record<string, string>
   requestKeys: Record<string, string>
   events: HalaEvent[]
+  robots: Robot[]
+  robotCommands: RobotCommand[]
+  robotLogs: RobotLog[]
 }
 
 const MAX_EVENTS = 2000
 const seqOf = (ref: string) => Number(/(\d+)$/.exec(ref)?.[1] ?? 0)
 
-const empty = (): Snapshot => ({ bookings: [], requests: [], handovers: [], bookingKeys: {}, requestKeys: {}, events: [] })
+const empty = (): Snapshot => ({ bookings: [], requests: [], handovers: [], bookingKeys: {}, requestKeys: {}, events: [], robots: [], robotCommands: [], robotLogs: [] })
 
 /**
  * In-memory stores, optionally persisted to one JSON file.
@@ -92,6 +95,41 @@ export function createStores(opts: { file?: string } = {}): Stores & { reset: ()
         save()
       },
       list: async () => structuredClone(state.handovers)
+    },
+    robots: {
+      create: async (r) => { state.robots.push(structuredClone(r)); save() },
+      get: async (id) => clone(state.robots.find((r) => r.id === id)),
+      getByTokenHash: async (hash) => clone(state.robots.find((r) => r.tokenHash === hash)),
+      list: async () => structuredClone(state.robots),
+      patch: async (id, fields) => {
+        const r = state.robots.find((x) => x.id === id)
+        if (!r) return
+        for (const [k, v] of Object.entries(fields)) {
+          if (v === null) delete (r as unknown as Record<string, unknown>)[k]
+          else if (v !== undefined) (r as unknown as Record<string, unknown>)[k] = structuredClone(v)
+        }
+        save()
+      },
+      delete: async (id) => {
+        state.robots = state.robots.filter((r) => r.id !== id)
+        state.robotCommands = state.robotCommands.filter((c) => c.robotId !== id)
+        state.robotLogs = state.robotLogs.filter((l) => l.robotId !== id)
+        save()
+      },
+      addCommand: async (c) => { state.robotCommands.push(structuredClone(c)); save() },
+      pendingCommands: async (robotId) => structuredClone(state.robotCommands.filter((c) => c.robotId === robotId && c.status === 'pending')),
+      recentCommands: async (robotId, limit) => structuredClone(state.robotCommands.filter((c) => c.robotId === robotId).slice(-limit)),
+      updateCommand: async (c) => {
+        const i = state.robotCommands.findIndex((x) => x.id === c.id)
+        if (i >= 0) state.robotCommands[i] = structuredClone(c)
+        save()
+      },
+      addLogs: async (logs) => {
+        state.robotLogs.push(...structuredClone(logs))
+        if (state.robotLogs.length > 3000) state.robotLogs.splice(0, state.robotLogs.length - 3000)
+        save()
+      },
+      logs: async (robotId, limit) => structuredClone(state.robotLogs.filter((l) => l.robotId === robotId).slice(-limit))
     },
     events,
     reset() { state = empty(); save() }

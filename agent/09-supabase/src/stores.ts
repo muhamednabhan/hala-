@@ -1,6 +1,7 @@
 import {
   SlotConflictError,
-  type Booking, type EventBus, type HalaEvent, type Handover, type Lang, type ServiceRequest, type Stores
+  type Booking, type EventBus, type HalaEvent, type Handover, type Lang, type Robot, type RobotCommand, type RobotLog, type RobotPatch, type RobotRepo,
+  type ServiceRequest, type Stores
 } from '@hala/core'
 
 /**
@@ -98,6 +99,33 @@ const toEvent = (r: Row): HalaEvent => ({
   id: String(r.id), ts: String(r.ts), conversationId: optional(r.conversation_id as string), type: r.type as HalaEvent['type'], data: (r.data ?? {}) as Record<string, unknown>
 })
 
+const robotRow = (r: Robot): Row => ({
+  id: r.id, name: r.name, notes: r.notes ?? null, ip: r.ip ?? null, domain_id: r.domainId ?? null, aimdk_path: r.aimdkPath ?? null,
+  mic_stream: r.micStream, half_duplex: r.halfDuplex, volume: r.volume ?? null, token_hash: r.tokenHash, desired: r.desired,
+  last_seen: r.lastSeen ?? null, bridge_version: r.bridgeVersion ?? null, state: r.state ?? null, created_at: r.createdAt
+})
+const ROBOT_COLUMNS: Record<string, string> = {
+  name: 'name', notes: 'notes', ip: 'ip', domainId: 'domain_id', aimdkPath: 'aimdk_path', micStream: 'mic_stream', halfDuplex: 'half_duplex',
+  volume: 'volume', tokenHash: 'token_hash', desired: 'desired', lastSeen: 'last_seen', bridgeVersion: 'bridge_version', state: 'state'
+}
+/** Only the fields that changed, as columns. `null` clears. */
+const robotPatchRow = (f: RobotPatch): Row =>
+  Object.fromEntries(Object.entries(f).filter(([k, v]) => v !== undefined && ROBOT_COLUMNS[k]).map(([k, v]) => [ROBOT_COLUMNS[k]!, v]))
+const toRobot = (r: Row): Robot => ({
+  id: String(r.id), name: String(r.name), notes: optional(r.notes as string), ip: optional(r.ip as string), domainId: optional(r.domain_id as number),
+  aimdkPath: optional(r.aimdk_path as string), micStream: Number(r.mic_stream ?? 0) as Robot['micStream'], halfDuplex: Boolean(r.half_duplex),
+  volume: optional(r.volume as number), tokenHash: String(r.token_hash), desired: r.desired as Robot['desired'], lastSeen: optional(r.last_seen as string),
+  bridgeVersion: optional(r.bridge_version as string), state: optional(r.state as Robot['state']), createdAt: String(r.created_at)
+})
+const toCommand = (r: Row): RobotCommand => ({
+  id: String(r.id), robotId: String(r.robot_id), type: r.type as RobotCommand['type'], payload: (r.payload ?? {}) as Record<string, unknown>,
+  status: r.status as RobotCommand['status'], result: optional(r.result as string), createdAt: String(r.created_at), doneAt: optional(r.done_at as string)
+})
+const commandRow = (c: RobotCommand): Row => ({
+  id: c.id, robot_id: c.robotId, type: c.type, payload: c.payload, status: c.status, result: c.result ?? null, created_at: c.createdAt, done_at: c.doneAt ?? null
+})
+const toLog = (r: Row): RobotLog => ({ id: String(r.id), robotId: String(r.robot_id), ts: String(r.ts), level: r.level as RobotLog['level'], message: String(r.message) })
+
 const seq = (rows: Row[]) => Math.max(1000, ...rows.map((r) => Number(/(\d+)$/.exec(String(r.ref))?.[1] ?? 0)))
 
 // ---------------------------------------------------------------- stores
@@ -166,14 +194,40 @@ export function createSupabaseStores(o: SupabaseOptions): Stores {
     }
   }
 
-  return { bookings, requests, handovers, events }
+  const robots: RobotRepo = {
+    create: (r) => db.insert('hala_robots', robotRow(r)),
+    get: async (id) => { const r = (await db.select('hala_robots', `id=eq.${enc(id)}&limit=1`))[0]; return r ? toRobot(r) : undefined },
+    getByTokenHash: async (hash) => { const r = (await db.select('hala_robots', `token_hash=eq.${enc(hash)}&limit=1`))[0]; return r ? toRobot(r) : undefined },
+    list: async () => (await db.select('hala_robots', 'order=created_at.asc&limit=200')).map(toRobot),
+    patch: async (id, fields) => { const row = robotPatchRow(fields); if (Object.keys(row).length) await db.patch('hala_robots', `id=eq.${enc(id)}`, row) },
+    delete: async (id) => { await db.call(`hala_robots?id=eq.${enc(id)}`, { method: 'DELETE', prefer: 'return=minimal' }) },
+    addCommand: (c) => db.insert('hala_robot_commands', commandRow(c)),
+    pendingCommands: async (robotId) => (await db.select('hala_robot_commands', `robot_id=eq.${enc(robotId)}&status=eq.pending&order=created_at.asc&limit=20`)).map(toCommand),
+    recentCommands: async (robotId, limit) => (await db.select('hala_robot_commands', `robot_id=eq.${enc(robotId)}&order=created_at.desc&limit=${limit}`)).map(toCommand).reverse(),
+    updateCommand: (c) => db.patch('hala_robot_commands', `id=eq.${enc(c.id)}`, commandRow(c)),
+    addLogs: async (logs) => {
+      if (logs.length) await db.call('hala_robot_logs', { method: 'POST', body: logs.map((l) => ({ id: l.id, robot_id: l.robotId, ts: l.ts, level: l.level, message: l.message })), prefer: 'return=minimal' })
+    },
+    logs: async (robotId, limit) => (await db.select('hala_robot_logs', `robot_id=eq.${enc(robotId)}&order=ts.desc&limit=${limit}`)).map(toLog).reverse()
+  }
+
+  return { bookings, requests, handovers, events, robots }
+}
+
+/** Do the robot tables (migration 002) exist? Checked separately so bookings keep working without them. */
+export async function robotTablesReady(o: SupabaseOptions): Promise<boolean> {
+  const db = new Rest(o)
+  try {
+    await Promise.all(['hala_robots', 'hala_robot_commands', 'hala_robot_logs'].map((t) => db.select(t, 'limit=0')))
+    return true
+  } catch { return false }
 }
 
 /** True when the hala_* tables exist and the key works. Used to choose between Supabase and the local file. */
 export async function supabaseReady(o: SupabaseOptions): Promise<{ ok: true } | { ok: false; reason: string }> {
   const db = new Rest(o)
   try {
-    for (const t of ['hala_bookings', 'hala_requests', 'hala_handovers', 'hala_events', 'hala_idempotency']) await db.select(t, 'limit=0')
+    await Promise.all(['hala_bookings', 'hala_requests', 'hala_handovers', 'hala_events', 'hala_idempotency'].map((t) => db.select(t, 'limit=0')))
     return { ok: true }
   } catch (e) {
     const status = (e as { status?: number }).status

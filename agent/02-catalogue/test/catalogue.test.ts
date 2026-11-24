@@ -77,6 +77,6 @@ describe('fact lookup', () => {
     }
   })
   it('only holds facts with an allowed source', () => {
-    for (const f of FACTS) expect(['brief', 'handover']).toContain(f.source)
+    for (const f of FACTS) expect(['brief', 'handover', 'kb']).toContain(f.source)
   })
 })

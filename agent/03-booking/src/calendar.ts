@@ -71,12 +71,10 @@ export function createCalendar({ bookings, clock = systemClock, capacity = 1 }: 
 
   /** Next free slots on or after a date, across business days. */
   async function nextAvailable(fromDate: string, count = 3, ignoreRef?: string): Promise<Slot[]> {
-    const found: Slot[] = []
-    let date = fromDate
-    for (let i = 0; i < 21 && found.length < count; i++, date = addDays(date, 1)) {
-      found.push(...(await freeSlots(date, ignoreRef)))
-    }
-    return found.slice(0, count)
+    // Look at the next two weeks at once instead of one day per network trip.
+    const days = Array.from({ length: 14 }, (_, i) => addDays(fromDate, i))
+    const perDay = await Promise.all(days.map((d) => freeSlots(d, ignoreRef)))
+    return perDay.flat().slice(0, count)
   }
 
   const fail = async (
@@ -87,7 +85,7 @@ export function createCalendar({ bookings, clock = systemClock, capacity = 1 }: 
   })
 
   /** Validate a requested slot. Returns an error result or undefined when it can be booked. */
-  async function check(date: string, time: string, ignoreRef?: string) {
+  async function check(date: string, time: string, ignoreRef?: string, preloaded?: Booking[]) {
     const at = dubaiInstant(date, time)
     const today = dubaiParts(clock.now()).date
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || weekdayOf(date) === undefined) return fail('invalid_date', `"${date}" is not a valid date`, today)
@@ -97,12 +95,10 @@ export function createCalendar({ bookings, clock = systemClock, capacity = 1 }: 
     if (minutes < OPEN_MINUTES || minutes >= CLOSE_MINUTES) return fail('outside_hours', 'Appointments run from 08:00 to 15:00, the last one starts at 14:30', date)
     if (minutes % SLOT_MINUTES !== 0) return fail('not_on_slot_grid', 'Appointments start on the hour or the half hour', date)
     if (at <= clock.now()) return fail('past', 'That time has already passed', today)
-    const taken = (await bookings.listByDate(date)).filter((b) => b.ref !== ignoreRef && b.time === time)
+    const taken = (preloaded ?? (await bookings.listByDate(date))).filter((b) => b.ref !== ignoreRef && b.time === time)
     if (taken.length >= capacity) return fail('taken', 'That slot is already booked', date, ignoreRef)
     return undefined
   }
-
-  const nextRef = async () => `HALA-${(await bookings.maxSequence()) + 1}`
 
   return {
     freeSlots,
@@ -114,22 +110,24 @@ export function createCalendar({ bookings, clock = systemClock, capacity = 1 }: 
       }
       // A retried tool call (same conversation, service, slot, person) returns the original booking.
       const key = [input.conversationId ?? 'no-conv', input.serviceId, input.date, input.time, input.attendeeName.trim().toLowerCase()].join('|')
-      const existing = await bookings.findByKey(key)
+      // Three independent reads in ONE round trip (a far-away database makes each sequential read a full network trip).
+      const [existing, onDate, last] = await Promise.all([
+        bookings.findByKey(key), bookings.listByDate(input.date).catch(() => [] as Booking[]), bookings.maxSequence()
+      ])
       if (existing && existing.status === 'confirmed') return { ok: true, value: { booking: existing, duplicate: true } }
-      const problem = await check(input.date, input.time)
+      const problem = await check(input.date, input.time, undefined, onDate)
       if (problem) return problem
       const now = clock.now().toISOString()
       const booking: Booking = {
-        ref: await nextRef(), serviceId: input.serviceId, attendeeName: input.attendeeName.trim(),
+        ref: `HALA-${last + 1}`, serviceId: input.serviceId, attendeeName: input.attendeeName.trim(),
         bookedByName: input.bookedByName?.trim() || undefined, contact: input.contact.trim(),
         date: input.date, time: input.time, language: input.language, conversationId: input.conversationId,
         status: 'confirmed', createdAt: now, updatedAt: now
       }
-      try { await bookings.create(booking) } catch (e) {
+      try { await Promise.all([bookings.create(booking), bookings.saveKey(key, booking.ref)]) } catch (e) {
         if (e instanceof SlotConflictError) return fail('taken', 'That slot is already booked', input.date)
         throw e
       }
-      await bookings.saveKey(key, booking.ref)
       return { ok: true, value: { booking, duplicate: false } }
     }),
 

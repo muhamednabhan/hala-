@@ -18,9 +18,14 @@ export interface ToolApiOptions {
   secret?: string
   /** Tests only: skip the secret check. */
   insecureNoAuth?: boolean
+  /**
+   * Do not wait for the event to be saved before answering. The live feed is told at once either way; the database write
+   * (a network trip) happens in the background, returned as `background` so a serverless host can keep it alive.
+   */
+  deferEvents?: boolean
 }
 
-export interface ToolResponse { status: number; body: Record<string, unknown> }
+export interface ToolResponse { status: number; body: Record<string, unknown>; background?: Promise<unknown> }
 
 type Args = Record<string, unknown>
 interface Outcome { body: Record<string, unknown>; event?: Pick<HalaEvent, 'type' | 'data'> }
@@ -56,11 +61,22 @@ const serviceView = (s: Service) => ({
   fulfilment: s.fulfilment,
   audience: s.audience,
   documents: s.documents,
+  // Fee and time exactly as the knowledge base words them. DEMO values: always say so when stating them.
   demo_fee_aed: s.demoFeeAed,
+  demo_fee_text: s.feeText,
   demo_processing_days: s.demoDays,
+  demo_timeline_text: s.timelineText,
+  ...(s.voiceSummary ? { voice_summary: s.voiceSummary } : {}),
+  ...(s.eligibility ? { eligibility: s.eligibility } : {}),
+  ...(s.steps ? { process_steps: s.steps } : {}),
+  ...(s.policy ? { policy_for_agent: s.policy } : {}),
+  ...(s.notes ? { extra_facts: s.notes } : {}),
   ...(s.clarify ? { clarifying_question: s.clarify } : {}),
   ...(s.agentNote ? { note_for_agent: s.agentNote } : {})
 })
+
+/** Where a person can be reached. From the DSO knowledge base. The agent may offer it after a hand-over. */
+const HUMAN_CONTACT = { phone: '600 59 55 57', hours: 'Monday to Friday, 8 AM to 3 PM Dubai time', email: 'hello@dso.ae' }
 
 const NOT_FOUND_HELP = 'Offer to connect them to the DSO team and call handover_to_human if they accept.'
 
@@ -214,12 +230,27 @@ export function createToolApi(opts: ToolApiOptions) {
       return { body: { ok: true, booking: bookingView(booking) } }
     },
 
+    async [TOOL_NAMES.checkRequest](a) {
+      const ref = normalizeRef(clean(a.ref, 30), 'REQ')
+      const r = ref ? await stores.requests.get(ref) : undefined
+      if (!r) return { body: { ok: false, error_code: 'not_found', message: 'No request with that reference', instruction: 'Ask the caller to check the number once more, then offer a hand-over.' } }
+      return { body: { ok: true, request: { ref: r.ref, ref_spoken: spokenRef(r.ref), service: getService(r.serviceId, services)?.name, caller_name: r.callerName, details: r.details, location: r.location, logged: 'yes', logged_at_dubai: `${dubaiParts(new Date(r.createdAt)).date} ${dubaiParts(new Date(r.createdAt)).time}` }, instruction: 'Read back what was logged in one sentence. The status is not tracked here: say the DSO team will follow up, and offer a hand-over for updates.' } }
+    },
+
+    async [TOOL_NAMES.serviceProcess](a) {
+      const service = getService(clean(a.service_id, 60), services)
+      if (!service) return { body: { ok: false, error_code: 'unknown_service', message: 'No such service id', instruction: 'Use an id from the service sheet.' } }
+      return { body: { ok: true, ...serviceView(service), instruction: 'Give the steps one or two at a time, in the caller language. Any fee or time is a demo value.' } }
+    },
+
     async [TOOL_NAMES.logRequest](a, conversationId) {
       const service = getService(clean(a.service_id, 60), services)
       if (!service || service.fulfilment !== 'ticket') {
         return { body: { ok: false, error_code: 'not_a_ticket_service', message: 'log_request is only for maintenance and complaints', instruction: 'Call find_service to pick the right service.' }, event: { type: 'tool_error', data: { code: 'not_a_ticket_service' } } }
       }
-      const details = clean(a.details, 500)
+      // Urgency travels inside the details so any adapter (file, Supabase) and the dashboard see it without a new column.
+      const urgent = a.urgency === 'emergency' ? '[EMERGENCY] ' : ''
+      const details = `${urgent}${clean(a.details, 500)}`.slice(0, 520)
       const callerName = clean(a.caller_name, 80)
       const contact = clean(a.contact, 80)
       if (!callerName || contact.length < 3 || !details) {
@@ -235,8 +266,8 @@ export function createToolApi(opts: ToolApiOptions) {
       return {
         body: {
           ok: true, ref: request.ref, ref_spoken: spokenRef(request.ref), service: service.name, already_logged: Boolean(existing),
-          expected_demo_days: service.demoDays, demo_notice: DEMO_NOTICE,
-          instruction: 'Confirm that the request is logged, give the reference digit by digit, and say the DSO team will follow up. Do not promise a time.'
+          demo_timeline_text: service.timelineText, demo_notice: DEMO_NOTICE,
+          instruction: 'Confirm that the request is logged and give the reference digit by digit. You may say the timeline only if the caller asks, as a demo value. Do not promise a time or an outcome.'
         },
         event: { type: 'request_logged', data: { ref: request.ref, service: service.id, caller: callerName, contact: maskContact(contact), summary: details.slice(0, 140) } }
       }
@@ -260,15 +291,16 @@ export function createToolApi(opts: ToolApiOptions) {
     async [TOOL_NAMES.handover](a, conversationId) {
       const reason = (HANDOVER_REASONS as readonly string[]).includes(String(a.reason)) ? (a.reason as HandoverReason) : 'other'
       const handover = {
-        id: `HO-${randomUUID().slice(0, 8)}`, reason, language: lang(a.language), summary: clean(a.summary, 500),
+        // Digits only, so the agent can read it aloud (a random hex id came out as "H O four a one three...").
+        id: `HO-${Math.floor(10000 + Math.random() * 90000)}`, reason, language: lang(a.language), summary: clean(a.summary, 500),
         callerName: clean(a.caller_name, 80) || undefined, contact: clean(a.contact, 80) || undefined,
         conversationId, status: 'open' as const, createdAt: clock.now().toISOString()
       }
       await stores.handovers.create(handover)
       return {
         body: {
-          ok: true, handover_id: handover.id,
-          instruction: 'Tell the caller once, calmly, that the DSO team has been notified and a person will take over. Say what happens next in one sentence. Do not promise a callback time, a refund or an outcome.'
+          ok: true, handover_id: handover.id, handover_ref_spoken: spokenRef(handover.id), human_contact: HUMAN_CONTACT,
+          instruction: 'Tell the caller once, calmly, that the DSO team has been notified and a person will take over. Say what happens next in one sentence. You may offer the phone number (read it in groups) or an in-person appointment at the HALA desk (service desk_resolution) if they prefer. Do not promise a callback time, a refund, a waiver or an outcome. You cannot cancel a hand-over: if the caller changes their mind, say you have noted it and leave it at that.'
         },
         event: { type: 'handover_requested', data: { id: handover.id, reason, language: handover.language, summary: handover.summary, caller: handover.callerName } }
       }
@@ -300,7 +332,9 @@ export function createToolApi(opts: ToolApiOptions) {
     try {
       const outcome = await handler(parsed.data as Args, conversationId)
       if (outcome.event) {
-        await stores.events.publish({ id: randomUUID(), ts: clock.now().toISOString(), conversationId, ...outcome.event })
+        const saved = Promise.resolve(stores.events.publish({ id: randomUUID(), ts: clock.now().toISOString(), conversationId, ...outcome.event })).catch(() => undefined)
+        if (opts.deferEvents) return { status: 200, body: outcome.body, background: saved }
+        await saved
       }
       return { status: 200, body: outcome.body }
     } catch (error) {

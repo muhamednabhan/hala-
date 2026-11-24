@@ -18,3 +18,6 @@ ios/HalaPhone/shots/
 ios/HalaPhone/Payload/
 ios/HalaPhone/*.ipa
 ios/HalaPhone/*.log
+.vercel
+.env*
+agent/02-catalogue/src/DSO Knowledge Base*.md

@@ -16,7 +16,6 @@
  * most natural of the fast ones, and flash stays one env var away (HALA_TTS_MODEL).
  */
 export const HUMAN_LLM = 'gemini-3.1-flash-lite'
-export const HUMAN_TTS_MODEL = 'eleven_v3_conversational'
 
 /** Shorter than the shared greeting: still says it is an AI in both languages, but a caller hears it in ~4 s. */
 export const PHONE_GREETING = "Hi, this is HALA, an AI assistant. أهلاً، معك هلا، مساعدة ذكاء اصطناعي. How can I help? كيف أقدر أساعدك؟"
@@ -27,37 +26,19 @@ export const BACKCHANNEL_TERMS = [
   'اها', 'اه', 'ايه', 'أيوه', 'طيب', 'تمام', 'ماشي', 'اوكي', 'صح', 'مم'
 ]
 
+/** On top of the shared turn settings (eager, speculative, soft-timeout filler): a better turn model and backchannels. */
 export const humanTurn = {
-  /** Jump in as soon as the caller has finished, the way a person does. */
-  turnEagerness: 'eager' as const,
-  spellingPatience: 'auto' as const,
-  /** Start the answer while the caller's last word is still settling. */
-  speculativeTurn: true,
   turnModel: 'turn_v3' as const,
-  silenceEndCallTimeout: 45,
-  turnTimeout: 8,
-  /** If the model is slow (a tool call, a long answer), say something natural instead of going silent. */
-  softTimeoutConfig: {
-    timeoutSeconds: 1.4,
-    useLlmGeneratedMessage: true,
-    maxSoftTimeoutsPerGeneration: 2,
-    disableUntilFirstUserMessage: true
-  },
   interruptionIgnoreTerms: BACKCHANNEL_TERMS,
   interruptionIgnoreTermLanguages: ['en', 'ar'],
   mergeWithDefaultIgnoreTerms: true
 }
 
+/** On top of the shared voice (v3 conversational, expressive): a little looser and a touch quicker. */
 export const humanTts = {
-  /** Lower than the default: more movement in the voice, less read-aloud. */
   stability: 0.45,
-  similarityBoost: 0.8,
-  speed: 1.03,
-  expressiveMode: false
+  speed: 1.03
 }
-
-/** Tools that only read data are announced before they run ("let me check"), so the wait is never silent. */
-export const SPOKEN_BEFORE_TOOLS = ['find_service', 'list_slots', 'lookup_fact', 'check_booking']
 
 export const HUMAN_VOICE_PROMPT = `
 # Sound like a person on the phone

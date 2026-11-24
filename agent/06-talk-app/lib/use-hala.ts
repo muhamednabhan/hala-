@@ -1,6 +1,6 @@
 'use client'
 import { useConversation } from '@elevenlabs/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { FIRST_MESSAGE, type HalaEvent } from '@hala/core'
 
 export type LanguagePref = 'auto' | 'en' | 'ar'
@@ -31,7 +31,6 @@ export function useHala() {
   const [toolProblem, setToolProblem] = useState(false)
   const [conversationId, setConversationId] = useState<string>()
   const [starting, setStarting] = useState(false)
-  const source = useRef<EventSource | undefined>(undefined)
 
   const conversation = useConversation({
     onMessage: (m: { message: string; role: 'user' | 'agent'; event_id?: number }) =>
@@ -48,17 +47,24 @@ export function useHala() {
   const status = conversation.status
   const live = status === 'connected'
 
-  // Subscribe to our own event feed once we know the conversation id.
+  // Poll our own event feed once we know the conversation id. Polling (not a stream) so it also works on serverless hosting.
   useEffect(() => {
-    source.current?.close()
     if (!conversationId) return
-    const es = new EventSource(`/api/events?conversation_id=${encodeURIComponent(conversationId)}`)
-    es.addEventListener('hala', (msg) => {
-      const e = JSON.parse((msg as MessageEvent<string>).data) as HalaEvent
-      setEvents((prev) => (prev.some((p) => p.id === e.id) ? prev : [...prev, e]))
-    })
-    source.current = es
-    return () => es.close()
+    let stop = false
+    let after = ''
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/events?poll=1&conversation_id=${encodeURIComponent(conversationId)}&after=${encodeURIComponent(after)}`, { cache: 'no-store' })
+        if (!res.ok) return
+        const fresh = (await res.json()) as HalaEvent[]
+        if (stop || fresh.length === 0) return
+        after = fresh[fresh.length - 1]!.ts
+        setEvents((prev) => [...prev, ...fresh.filter((e) => !prev.some((p) => p.id === e.id))])
+      } catch { /* a missed poll is retried on the next tick */ }
+    }
+    void tick()
+    const timer = setInterval(tick, 1500)
+    return () => { stop = true; clearInterval(timer) }
   }, [conversationId])
 
   const start = useCallback(async (pref: LanguagePref) => {
@@ -67,10 +73,10 @@ export function useHala() {
       // The microphone must be requested inside the click handler (browser rule).
       await navigator.mediaDevices.getUserMedia({ audio: true })
       const res = await fetch('/api/token?channel=web', { cache: 'no-store' })
-      const body = (await res.json()) as { token?: string; error?: string }
+      const body = (await res.json()) as { token?: string; error?: string; startProcedureIds?: string[] }
       if (!res.ok || !body.token) throw new Error(body.error ?? `Token request failed (${res.status})`)
       setLines([]); setEvents([]); setConversationId(undefined)
-      conversation.startSession({ conversationToken: body.token, connectionType: 'webrtc', overrides: overridesFor(pref) } as never)
+      conversation.startSession({ conversationToken: body.token, connectionType: 'webrtc', overrides: overridesFor(pref), stripAudioTags: true, ...(body.startProcedureIds?.length ? { startProcedureIds: body.startProcedureIds } : {}) } as never)
     } catch (e) {
       setError(describe(e))
     } finally {

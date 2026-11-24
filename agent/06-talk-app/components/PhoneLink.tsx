@@ -4,10 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 interface Issued { code: string; qr: string }
 
 /**
- * Just the QR code. Scanning it with the iPhone camera opens HALA Phone on Messages with a one-time code
- * filled in; sending that text tells the server which phone is theirs. When it lands the QR gives way to a
- * check mark, then a fresh code is issued for the next visitor. No text on purpose: the robot page stays
- * about the conversation, and the code itself is inside the QR.
+ * Just the QR code, no words. Scanning it with the iPhone camera opens HALA Phone on Messages with a one-time
+ * code filled in; sending that text tells the server which phone is theirs. When it lands the QR gives way to a
+ * check mark, then a fresh code is issued for the next visitor.
  */
 export function PhoneLink() {
   const [issued, setIssued] = useState<Issued>()
@@ -46,7 +45,7 @@ export function PhoneLink() {
   useEffect(() => () => clearTimeout(timer.current), [])
 
   return (
-    <div className={`qr ${linked ? 'qr-linked' : ''}`} role="img" aria-label={linked ? 'Phone linked' : 'QR code to text HALA from your iPhone'}>
+    <div className={linked ? 'qr qr-linked' : 'qr'} role="img" aria-label={linked ? 'Phone linked' : 'QR code: text HALA from your iPhone'}>
       {issued && !failed && (
         // eslint-disable-next-line @next/next/no-img-element
         <img className="qr-img" src={issued.qr} alt="" width={176} height={176} draggable={false} />

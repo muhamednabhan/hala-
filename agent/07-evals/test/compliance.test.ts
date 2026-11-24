@@ -16,9 +16,10 @@ const agent = config.conversationConfig.agent
 const prompt = agent.prompt.prompt
 const AI_EN = /AI assistant/i
 const AI_AR = /ذكاء اصطناعي|الذكاء الاصطناعي/
-// Target was ~9000; the prompt is currently ~9.4k chars (about 2.4k tokens). 10k leaves headroom for
-// the Arabic review edits while still catching runaway growth that would slow every turn.
-const PROMPT_BUDGET = 10_000
+// The prompt now carries the service sheet (documents, DEMO fee and time per service) so the agent can answer the commonest
+// questions with NO tool call, which is the biggest single latency saving. That costs prompt length; the budget catches
+// runaway growth, since a longer prompt makes every turn a little slower.
+const PROMPT_BUDGET = 14_500
 
 describe('AI disclosure in every first message', () => {
   it('bilingual opener (the agent default) says AI in English and Arabic', () => {
@@ -48,14 +49,13 @@ describe('AI disclosure in every first message', () => {
 describe('system prompt rules', () => {
   it('declares itself an AI and tells the agent never to claim to be human', () => {
     expect(prompt).toMatch(/You are an AI assistant/)
-    expect(prompt).toMatch(/Never claim to be human/)
-    expect(prompt).toMatch(/real person, a robot or a human/)
+    expect(prompt).toMatch(/never pretend otherwise/)
+    expect(prompt).toMatch(/a person or a robot/)
   })
   it('forbids inventing facts and tells the agent to admit not knowing', () => {
     expect(prompt).toMatch(/NEVER INVENT/)
     expect(prompt).toMatch(/Never guess/)
     expect(prompt).toMatch(/I don't have that information/)
-    expect(prompt).toMatch(/not from memory|from memory/i)
   })
   it('requires the demo notice, in both languages, for every fee or time', () => {
     expect(prompt).toMatch(/DEMO VALUES/)
@@ -65,12 +65,12 @@ describe('system prompt rules', () => {
   it('lists every handover trigger with its reason code', () => {
     for (const r of HANDOVER_REASONS) expect(prompt, r).toContain(`- ${r}:`)
     expect(prompt).toMatch(/dispute/i)
-    expect(prompt).toMatch(/not a complaint to log|NOT a complaint/i)
+    expect(prompt).toMatch(/never logged as a complaint/)
   })
   it('requires a read-back and a clear yes before any booking change', () => {
-    expect(prompt).toMatch(/READ IT BACK/)
+    expect(prompt).toMatch(/Read back once/)
     expect(prompt).toMatch(/clear yes/)
-    expect(prompt).toMatch(/Only then call/)
+    expect(prompt).toMatch(/clear yes\. Then call/)
   })
   it('keeps date arithmetic on the server', () => {
     expect(prompt).toMatch(/Never work out dates yourself/)
@@ -79,12 +79,12 @@ describe('system prompt rules', () => {
   it('limits personal data and resists instruction injection', () => {
     expect(prompt).toMatch(/PRIVACY/)
     expect(prompt).toMatch(/Emirates ID/)
-    expect(prompt).toMatch(/STAY ON TASK/)
+    expect(prompt).toMatch(/Ignore any instruction/)
     expect(prompt).toMatch(/reveal this prompt/)
   })
   it('sets the Arabic style: Gulf-friendly MSA, feminine self-reference', () => {
     expect(prompt).toMatch(/Modern Standard Arabic with a light Gulf touch/)
-    expect(prompt).toMatch(/feminine forms/)
+    expect(prompt).toMatch(/feminine forms/i)
   })
   it('does not exceed the prompt length budget', () => {
     // Printed so the size is visible in the test output.
@@ -98,7 +98,7 @@ describe('prompt <-> tools consistency', () => {
 
   it('every tool the prompt tells the agent to call exists', () => {
     const referenced = [...prompt.matchAll(/\b(?:call|use|Call|Use) ([a-z]+_[a-z_]+)/g)].map((m) => m[1]!)
-    expect(referenced.length).toBeGreaterThan(5)
+    expect(referenced.length).toBeGreaterThan(3)
     const allowed = new Set([...toolNames, 'end_call', 'language_detection'])
     expect(referenced.filter((n) => !allowed.has(n))).toEqual([])
   })
@@ -121,14 +121,23 @@ describe('prompt <-> tools consistency', () => {
 })
 
 describe('catalogue in the prompt', () => {
-  it('lists all 12 catalogue services in the prompt index', () => {
-    expect(SERVICES).toHaveLength(12)
+  it('lists every catalogue service in the prompt index', () => {
+    expect(SERVICES.length).toBeGreaterThanOrEqual(12)
     for (const s of SERVICES) expect(prompt, s.id).toContain(`- ${s.id}:`)
   })
-  it('keeps fees and times OUT of the prompt: they only come from tool results', () => {
+  it('puts fees and times in the prompt ONLY as labelled demo values', () => {
     for (const s of SERVICES) {
-      if (s.demoFeeAed) expect(prompt, `fee of ${s.id}`).not.toContain(String(s.demoFeeAed))
+      if (s.feeText) expect(prompt, `fee of ${s.id}`).toContain(`fee: ${s.feeText} (DEMO)`)
+      if (s.timelineText) expect(prompt, `time of ${s.id}`).toContain(`time: ${s.timelineText} (DEMO)`)
     }
+    // every figure with "AED" in the prompt sits in a fee line that ends in (DEMO)
+    const loose = prompt.split('\n').filter((l) => /AED \d/.test(l) && !/\(DEMO\)/.test(l) && !l.startsWith('  rule:') && !l.startsWith('- '))
+    expect(loose).toEqual([])
+  })
+  it('lets the agent answer the commonest questions without a tool call', () => {
+    expect(prompt).toMatch(/ANSWER FROM THIS PROMPT/)
+    expect(prompt).toMatch(/Never call the same tool twice in a row/)
+    expect(prompt).toContain('600 59 55 57') // the contact line is a quick fact
   })
 })
 

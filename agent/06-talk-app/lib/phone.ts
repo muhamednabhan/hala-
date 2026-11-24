@@ -6,7 +6,8 @@ import {
   phoneTablesReady, queueNudges, type ChatPort, type PhoneStore, type PhoneTools, type SmsService, type Synthesize
 } from '@hala/phone'
 import { DEFAULT_VOICE_ID } from '@hala/provisioning'
-import { agentId, elevenlabs, hala, repoRoot, setting } from '@/lib/server'
+import { elevenlabs } from '@/lib/eleven'
+import { agentId, hala, repoRoot, setting } from '@/lib/server'
 
 /**
  * Everything the HALA Phone iOS app talks to, one set per server process (pinned on globalThis for the

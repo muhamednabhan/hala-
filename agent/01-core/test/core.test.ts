@@ -73,7 +73,8 @@ describe('guardrail wording', () => {
 describe('system prompt', () => {
   const tools = {
     findService: 'find_service', listSlots: 'list_slots', book: 'book_appointment', reschedule: 'reschedule_appointment',
-    cancel: 'cancel_appointment', logRequest: 'log_request', lookupFact: 'lookup_fact', handover: 'handover_to_human'
+    cancel: 'cancel_appointment', logRequest: 'log_request', lookupFact: 'lookup_fact', handover: 'handover_to_human',
+    checkBooking: 'check_booking', checkRequest: 'check_request', serviceProcess: 'service_process'
   }
   const prompt = buildSystemPrompt({ services: [], tools })
   it('contains the non-negotiables', () => {
@@ -90,7 +91,7 @@ describe('system prompt', () => {
     for (const r of ['fee_dispute', 'upset_caller', 'caller_requested', 'emergency']) expect(prompt).toContain(r)
   })
   it('tells the agent to read back before booking and never to do date maths', () => {
-    expect(prompt).toMatch(/READ IT BACK/)
+    expect(prompt).toMatch(/Read back once/)
     expect(prompt).toMatch(/Never work out dates yourself/)
   })
 })

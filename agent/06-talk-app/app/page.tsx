@@ -1,5 +1,5 @@
-import Talk from '@/components/Talk'
+import AppShell from '@/components/AppShell'
 
 export default function Page() {
-  return <Talk />
+  return <AppShell />
 }

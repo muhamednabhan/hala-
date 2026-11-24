@@ -5,12 +5,22 @@ export const dynamic = 'force-dynamic'
 /**
  * GET /api/events?conversation_id=...  Server-sent events for one conversation (the live screen).
  * GET /api/events?key=<admin key>      Every conversation (the admin dashboard).
+ * Add &poll=1&after=<ISO> for a one-shot JSON answer instead of a stream (used by the talk page).
  */
 export async function GET(req: Request) {
   const conversationId = new URL(req.url).searchParams.get('conversation_id') ?? undefined
   if (!conversationId && !(await isAdmin(req))) return new Response('conversation_id or admin key required', { status: 401 })
 
   const { stores } = await hala()
+
+  // Polling mode: plain JSON, works on serverless hosts where a long-lived stream cannot.
+  // GET /api/events?conversation_id=...&poll=1&after=<ISO timestamp>
+  if (new URL(req.url).searchParams.get('poll')) {
+    const after = new URL(req.url).searchParams.get('after') ?? ''
+    const events = (await stores.events.history(conversationId)).filter((e) => !after || e.ts > after)
+    return new Response(JSON.stringify(events.slice(-100)), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
+  }
+
   const enc = new TextEncoder()
   let off: (() => void) | undefined
   let beat: ReturnType<typeof setInterval> | undefined

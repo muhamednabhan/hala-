@@ -3,13 +3,18 @@
   "private": true,
   "type": "module",
   "description": "HALA Concierge: bilingual (Arabic + English) voice agent for Dubai Silicon Oasis. Voice of the Oasis hackathon.",
-  "workspaces": ["agent/*"],
+  "workspaces": [
+    "agent/*"
+  ],
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "agent:sync": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/05-provisioning/src/sync-cli.ts",
     "agent:dev": "npm run dev -w @hala/talk-app",
-    "evals:live": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/07-evals/src/live-cli.ts"
+    "evals:live": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/07-evals/src/live-cli.ts",
+    "evals:latency": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/07-evals/src/latency-cli.ts",
+    "agent:knowledge": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/16-knowledge/src/knowledge-cli.ts",
+    "agent:answers": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/17-live-knowledge/src/cli.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
