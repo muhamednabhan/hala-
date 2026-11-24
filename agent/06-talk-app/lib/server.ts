@@ -27,7 +27,9 @@ const halaFile = () => resolve(/*turbopackIgnore: true*/ repoRoot, HALA_ENV_FILE
  * them from process.env first and fall back to the files at request time instead of freezing them at boot.
  */
 export const setting = (key: string): string | undefined =>
-  process.env[key] ?? readHalaEnv(halaFile()).get(key) ?? readHalaEnv(resolve(/*turbopackIgnore: true*/ repoRoot, '.env.local')).get(key)
+  // The file wins over the process environment: it is what agent:sync and a new tunnel URL write, and the
+  // process environment was only a copy taken at boot, so it goes stale.
+  readHalaEnv(halaFile()).get(key) ?? process.env[key] ?? readHalaEnv(resolve(/*turbopackIgnore: true*/ repoRoot, '.env.local')).get(key)
 
 function adminKey(): string {
   const file = halaFile()
