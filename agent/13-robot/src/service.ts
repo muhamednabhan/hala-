@@ -116,7 +116,8 @@ export function createRobotService(opts: { robots: RobotRepo; clock?: Clock }) {
   async function detail(id: string) {
     const robot = await robots.get(id)
     if (!robot) return undefined
-    return { robot: view(robot, clock.now()), logs: await robots.logs(id, 150), commands: await robots.recentCommands(id, 10) }
+    const [logs, commands] = await Promise.all([robots.logs(id, 150), robots.recentCommands(id, 10)])
+    return { robot: view(robot, clock.now()), logs, commands }
   }
 
   async function authenticate(token: string | null | undefined): Promise<Robot | undefined> {
@@ -128,29 +129,35 @@ export function createRobotService(opts: { robots: RobotRepo; clock?: Clock }) {
   async function sync(robot: Robot, body: unknown) {
     const msg = syncInput.parse(body ?? {})
     const ts = nowIso()
-    // Only the bridge-owned fields. The settings and desired state belong to the website and may have just changed.
-    await robots.patch(robot.id, { lastSeen: ts, ...(msg.version ? { bridgeVersion: msg.version } : {}), ...(msg.state ? { state: msg.state as RobotState } : {}) })
-    const updated = (await robots.get(robot.id)) ?? robot
+    const logs: RobotLog[] = (msg.logs ?? []).map((l) => ({ id: `lg_${randomUUID().slice(0, 10)}`, robotId: robot.id, ts, level: l.level, message: l.message }))
 
-    if (msg.logs?.length) {
-      const logs: RobotLog[] = msg.logs.map((l) => ({ id: `lg_${randomUUID().slice(0, 10)}`, robotId: robot.id, ts, level: l.level, message: l.message }))
-      await robots.addLogs(logs)
-    }
-    if (msg.results?.length) {
-      const pending = await robots.recentCommands(robot.id, 30)
-      for (const r of msg.results) {
-        const cmd = pending.find((c) => c.id === r.id)
-        if (cmd) await robots.updateCommand({ ...cmd, status: r.ok ? 'done' : 'failed', result: r.result, doneAt: ts })
-      }
-    }
-    const commands = await robots.pendingCommands(robot.id)
+    // One round of parallel calls: a far-away database makes every sequential query cost a full network trip.
+    // Only the bridge-owned fields are written. The settings and desired state belong to the website and may have
+    // just changed, so they are READ in the same round (never from the possibly stale `robot` we authenticated with).
+    const [fresh, , commands] = await Promise.all([
+      robots.get(robot.id),
+      robots.patch(robot.id, { lastSeen: ts, ...(msg.version ? { bridgeVersion: msg.version } : {}), ...(msg.state ? { state: msg.state as RobotState } : {}) }),
+      robots.pendingCommands(robot.id),
+      logs.length ? robots.addLogs(logs) : Promise.resolve(),
+      msg.results?.length ? applyResults(robot.id, msg.results, ts) : Promise.resolve()
+    ])
+    const current = fresh ?? robot
     return {
       ok: true,
       serverTime: ts,
-      desired: updated.desired,
-      config: { micStream: updated.micStream, halfDuplex: updated.halfDuplex, volume: updated.volume ?? null },
-      commands: commands.map((c) => ({ id: c.id, type: c.type, payload: c.payload }))
+      desired: current.desired,
+      config: { micStream: current.micStream, halfDuplex: current.halfDuplex, volume: current.volume ?? null },
+      // A command that just got its result back is not pending any more.
+      commands: commands.filter((c) => !msg.results?.some((r) => r.id === c.id)).map((c) => ({ id: c.id, type: c.type, payload: c.payload }))
     }
+  }
+
+  async function applyResults(robotId: string, results: NonNullable<z.infer<typeof syncInput>['results']>, ts: string) {
+    const recent = await robots.recentCommands(robotId, 30)
+    await Promise.all(results.map(async (r) => {
+      const cmd = recent.find((c) => c.id === r.id)
+      if (cmd) await robots.updateCommand({ ...cmd, status: r.ok ? 'done' : 'failed', result: r.result, doneAt: ts })
+    }))
   }
 
   return {
