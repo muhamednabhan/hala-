@@ -1,5 +1,5 @@
 import {
-  addDays, dubaiInstant, dubaiParts, systemClock, to12h, weekdayOf,
+  SlotConflictError, addDays, dubaiInstant, dubaiParts, systemClock, to12h, weekdayOf,
   type Booking, type BookingRepo, type Clock, type Lang
 } from '@hala/core'
 
@@ -125,7 +125,10 @@ export function createCalendar({ bookings, clock = systemClock, capacity = 1 }: 
         date: input.date, time: input.time, language: input.language, conversationId: input.conversationId,
         status: 'confirmed', createdAt: now, updatedAt: now
       }
-      await bookings.create(booking)
+      try { await bookings.create(booking) } catch (e) {
+        if (e instanceof SlotConflictError) return fail('taken', 'That slot is already booked', input.date)
+        throw e
+      }
       await bookings.saveKey(key, booking.ref)
       return { ok: true, value: { booking, duplicate: false } }
     }),
@@ -137,7 +140,10 @@ export function createCalendar({ bookings, clock = systemClock, capacity = 1 }: 
       const problem = await check(date, time, ref)
       if (problem) return problem
       const updated: Booking = { ...existing, date, time, updatedAt: clock.now().toISOString() }
-      await bookings.update(updated)
+      try { await bookings.update(updated) } catch (e) {
+        if (e instanceof SlotConflictError) return fail('taken', 'That slot is already booked', date, ref)
+        throw e
+      }
       return { ok: true, value: { booking: updated, previous: { date: existing.date, time: existing.time } } }
     }),
 
