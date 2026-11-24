@@ -13,7 +13,8 @@
     "agent:dev": "npm run dev -w @hala/talk-app",
     "evals:live": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/07-evals/src/live-cli.ts",
     "evals:latency": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/07-evals/src/latency-cli.ts",
-    "agent:knowledge": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/16-knowledge/src/knowledge-cli.ts"
+    "agent:knowledge": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/16-knowledge/src/knowledge-cli.ts",
+    "agent:answers": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/17-live-knowledge/src/cli.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

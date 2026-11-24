@@ -1,3 +1,5 @@
+import { after } from 'next/server'
+import { maybeSync } from '@/lib/live-knowledge'
 import { elevenlabs } from '@/lib/eleven'
 import { agentId, hasApiKey, json, setting } from '@/lib/server'
 import { robotFromRequest } from '@/lib/robot-auth'
@@ -18,6 +20,7 @@ export async function POST(req: Request) {
   try {
     const { signedUrl } = await elevenlabs().conversationalAi.conversations.getSignedUrl({ agentId: id })
     const start = setting('HALA_PROC_START_ROBOT') ?? ''
+    after(() => maybeSync())
     return json({ signedUrl, agentId: id, startProcedureIds: start ? start.split(',') : [] })
   } catch (e) {
     console.error('robot session error', (e as Error).message)

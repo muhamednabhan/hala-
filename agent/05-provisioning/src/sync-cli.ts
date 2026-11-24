@@ -31,6 +31,20 @@ const llm = opt('llm')
 const preSpeech = opt('pre-speech') as 'force' | 'auto' | 'off' | undefined
 const kb = get('HALA_KB_B64') ? (JSON.parse(Buffer.from(get('HALA_KB_B64')!, 'base64').toString('utf8')) as { id: string; name: string }[]) : []
 const pron = get('HALA_PRONUNCIATION_ID') ? { pronunciationDictionaryId: get('HALA_PRONUNCIATION_ID')!, versionId: get('HALA_PRONUNCIATION_VERSION') } : undefined
+/** The staff-answers document is managed by the live sync (npm run agent:answers). Keep its link when the agent is re-synced. */
+async function liveDoc(c: ElevenLabsClient, agentId?: string) {
+  if (!agentId) return undefined
+  try {
+    const a = (await c.conversationalAi.agents.get(agentId)) as unknown as { conversationConfig: { agent: { prompt: { knowledgeBase?: { type: string; name: string; id: string }[] } } } }
+    return a.conversationConfig.agent.prompt.knowledgeBase?.find((k) => k.name.startsWith('HALA 07-live-answers'))
+  } catch { return undefined }
+}
+function withLiveAnswers<T extends { conversationConfig: { agent: { prompt: { knowledgeBase?: unknown[] } } } }>(config: T, doc?: { type: string; name: string; id: string }): T {
+  if (!doc) return config
+  const p = config.conversationConfig.agent.prompt
+  p.knowledgeBase = [...(p.knowledgeBase ?? []), { type: 'text', name: doc.name, id: doc.id, usageMode: 'auto' }]
+  return config
+}
 const baseUrl = opt('base-url') ?? get('PUBLIC_BASE_URL') ?? ''
 const dry = flag('dry-run')
 if (!dry && !isPublicHttps(baseUrl)) {
@@ -53,7 +67,7 @@ for (const channel of channels) {
     continue
   }
   const key = (channel === 'robot' ? 'HALA_AGENT_ID_ROBOT' : 'HALA_AGENT_ID') + (dev ? '_DEV' : dev2 ? '_DEV2' : '')
-  const result = await syncAgent(client!, config, get(key))
+  const result = await syncAgent(client!, withLiveAnswers(config, await liveDoc(client!, get(key))), get(key))
   if (result.created || get(key) !== result.agentId) setHalaVar(key, result.agentId)
   console.log(`${result.created ? 'created' : 'updated'} ${config.name}: ${result.agentId}`)
   if (result.duplicates.length) console.warn(`  note: other agents named "${config.name}" exist: ${result.duplicates.join(', ')}`)
