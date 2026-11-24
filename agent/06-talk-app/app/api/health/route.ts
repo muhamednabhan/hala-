@@ -1,4 +1,4 @@
-import { agentId, json } from '@/lib/server'
+import { agentId, hasApiKey, hasPublicUrl, hasToolSecret, json } from '@/lib/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -6,10 +6,10 @@ export const dynamic = 'force-dynamic'
 export function GET() {
   return json({
     ok: true,
-    keyConfigured: Boolean(process.env.ELEVENLABS_API_KEY),
-    toolSecretConfigured: Boolean(process.env.HALA_TOOL_SECRET),
+    keyConfigured: hasApiKey(),
+    toolSecretConfigured: hasToolSecret(),
     webAgentConfigured: Boolean(agentId('web')),
     robotAgentConfigured: Boolean(agentId('robot')),
-    publicBaseUrlConfigured: Boolean(process.env.PUBLIC_BASE_URL)
+    publicBaseUrlConfigured: hasPublicUrl()
   })
 }

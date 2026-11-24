@@ -7,9 +7,9 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "agent:sync": "tsx --env-file-if-exists=.env.local --env-file-if-exists=.env.hala agent/05-provisioning/src/sync-cli.ts",
+    "agent:sync": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/05-provisioning/src/sync-cli.ts",
     "agent:dev": "npm run dev -w @hala/talk-app",
-    "evals:live": "tsx --env-file-if-exists=.env.local --env-file-if-exists=.env.hala agent/07-evals/src/live-cli.ts"
+    "evals:live": "tsx --env-file=.env.local --env-file-if-exists=.env.hala agent/07-evals/src/live-cli.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
