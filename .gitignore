@@ -12,3 +12,4 @@ agent/.data/
 
 .vercel
 .env*
+agent/02-catalogue/src/DSO Knowledge Base*.md
