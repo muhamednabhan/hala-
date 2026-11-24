@@ -1,0 +1,94 @@
+'use client'
+import { useConversation } from '@elevenlabs/react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { FIRST_MESSAGE, type HalaEvent } from '@hala/core'
+
+export type LanguagePref = 'auto' | 'en' | 'ar'
+export interface Line { id: string; role: 'user' | 'agent'; text: string }
+
+const overridesFor = (pref: LanguagePref) =>
+  pref === 'auto' ? undefined : { agent: { language: pref, firstMessage: FIRST_MESSAGE[pref] } }
+
+/** Friendly message for the most common ways starting a call fails. */
+function describe(e: unknown): string {
+  const name = (e as { name?: string })?.name
+  const msg = (e as Error)?.message ?? String(e)
+  if (name === 'NotAllowedError' || /permission|denied/i.test(msg)) return 'The microphone is blocked. Allow it in the browser address bar, then press Start again.'
+  if (name === 'NotFoundError') return 'No microphone was found. Plug one in and try again.'
+  return msg
+}
+
+/**
+ * Everything the talk page needs from one conversation:
+ * the voice session (ElevenLabs React SDK), the transcript, and the live feed of what HALA did
+ * (server-sent events from our own tools API, keyed by the conversation id).
+ * Must be rendered inside <ConversationProvider>.
+ */
+export function useHala() {
+  const [lines, setLines] = useState<Line[]>([])
+  const [events, setEvents] = useState<HalaEvent[]>([])
+  const [error, setError] = useState<string>()
+  const [toolProblem, setToolProblem] = useState(false)
+  const [conversationId, setConversationId] = useState<string>()
+  const [starting, setStarting] = useState(false)
+  const source = useRef<EventSource | undefined>(undefined)
+
+  const conversation = useConversation({
+    onMessage: (m: { message: string; role: 'user' | 'agent'; event_id?: number }) =>
+      setLines((prev) => [...prev, { id: `${m.event_id ?? prev.length}-${m.role}`, role: m.role, text: m.message }]),
+    onError: (message: string) => setError(message),
+    onConnect: (props: { conversationId?: string }) => { if (props?.conversationId) setConversationId(props.conversationId) },
+    // A webhook tool that fails (tunnel down, wrong secret) shows up here before anything else does.
+    onAgentToolResponse: (e: unknown) => {
+      const r = (e as { agent_tool_response?: { is_error?: boolean }; is_error?: boolean })
+      if (r?.agent_tool_response?.is_error || r?.is_error) setToolProblem(true)
+    }
+  } as never)
+
+  const status = conversation.status
+  const live = status === 'connected'
+
+  // Subscribe to our own event feed once we know the conversation id.
+  useEffect(() => {
+    source.current?.close()
+    if (!conversationId) return
+    const es = new EventSource(`/api/events?conversation_id=${encodeURIComponent(conversationId)}`)
+    es.addEventListener('hala', (msg) => {
+      const e = JSON.parse((msg as MessageEvent<string>).data) as HalaEvent
+      setEvents((prev) => (prev.some((p) => p.id === e.id) ? prev : [...prev, e]))
+    })
+    source.current = es
+    return () => es.close()
+  }, [conversationId])
+
+  const start = useCallback(async (pref: LanguagePref) => {
+    setError(undefined); setToolProblem(false); setStarting(true)
+    try {
+      // The microphone must be requested inside the click handler (browser rule).
+      await navigator.mediaDevices.getUserMedia({ audio: true })
+      const res = await fetch('/api/token?channel=web', { cache: 'no-store' })
+      const body = (await res.json()) as { token?: string; error?: string }
+      if (!res.ok || !body.token) throw new Error(body.error ?? `Token request failed (${res.status})`)
+      setLines([]); setEvents([]); setConversationId(undefined)
+      conversation.startSession({ conversationToken: body.token, connectionType: 'webrtc', overrides: overridesFor(pref) } as never)
+    } catch (e) {
+      setError(describe(e))
+    } finally {
+      setStarting(false)
+    }
+  }, [conversation])
+
+  // The id is also available from the session itself, in case onConnect did not carry it.
+  useEffect(() => {
+    if (live && !conversationId) {
+      try { const id = conversation.getId(); if (id) setConversationId(id) } catch { /* not ready */ }
+    }
+  }, [live, conversationId, conversation])
+
+  return {
+    status, live, starting, mode: conversation.mode, isMuted: conversation.isMuted, setMuted: conversation.setMuted,
+    getOutputVolume: conversation.getOutputVolume, getInputVolume: conversation.getInputVolume,
+    lines, events, error, toolProblem, conversationId,
+    start, stop: conversation.endSession
+  }
+}
