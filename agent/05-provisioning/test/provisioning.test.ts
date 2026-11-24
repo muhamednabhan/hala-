@@ -71,6 +71,31 @@ describe('agent config', () => {
       expect((c.conversationConfig.agent as any).dynamicVariables).toBeUndefined()
     }
   })
+  it('the phone agent runs the fast, human profile: small model, eager turns, spoken fillers, short greeting', () => {
+    const c = buildAgentConfig({ ...opts, channel: 'phone' })
+    const cc = c.conversationConfig as any
+    expect(cc.agent.prompt.llm).toBe('gemini-3.1-flash-lite')
+    expect(cc.agent.prompt.thinkingBudget).toBe(0)
+    expect(cc.agent.prompt.maxTokens).toBeLessThanOrEqual(300)
+    expect(cc.turn).toMatchObject({ turnEagerness: 'eager', speculativeTurn: true })
+    expect(cc.turn.softTimeoutConfig).toMatchObject({ useLlmGeneratedMessage: true })
+    expect(cc.turn.interruptionIgnoreTerms).toEqual(expect.arrayContaining(['mm-hmm', 'تمام']))
+    expect(cc.tts.modelId).toBe('eleven_v3_conversational')
+    expect(cc.agent.prompt.prompt).toMatch(/Sound like a person/)
+    const tools = cc.agent.prompt.tools as any[]
+    expect(tools.find((t) => t.name === 'find_service').preToolSpeech).toBe('force')
+    expect(tools.find((t) => t.name === 'book_appointment').preToolSpeech).not.toBe('force')
+    // the greeting is short, and still says it is an AI in both languages
+    expect(cc.agent.firstMessage.length).toBeLessThan(140)
+    expect(cc.agent.firstMessage).toMatch(/AI assistant/)
+    expect(cc.agent.firstMessage).toMatch(/ذكاء اصطناعي/)
+  })
+  it('a TTS model override wins, and --human can be applied to the robot agent without changing its audio format', () => {
+    expect((buildAgentConfig({ ...opts, channel: 'phone', ttsModel: 'eleven_flash_v2_5' }).conversationConfig.tts as any).modelId).toBe('eleven_flash_v2_5')
+    const robot = buildAgentConfig({ ...opts, channel: 'robot', humanVoice: true })
+    expect((robot.conversationConfig.tts as any).agentOutputAudioFormat).toBe('pcm_16000')
+    expect((robot.conversationConfig.agent.prompt as any).llm).toBe('gemini-3.1-flash-lite')
+  })
   it('can opt a web/robot agent into the code lookup tool only', () => {
     const c = buildAgentConfig({ ...opts, channel: 'robot', contactTool: true })
     const names = (c.conversationConfig.agent.prompt.tools as any[]).map((t) => t.name)

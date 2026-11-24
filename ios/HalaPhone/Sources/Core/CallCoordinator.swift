@@ -51,6 +51,7 @@ final class CallCoordinator: ObservableObject {
     private var timer: Timer?
     private var ringTimeout: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
+    private var cachedToken: (value: String, at: Date)?
 
     func attach(_ state: AppState) {
         guard self.state == nil else { return }
@@ -78,6 +79,23 @@ final class CallCoordinator: ObservableObject {
                 self?.captions = Array(lines)
             }
             .store(in: &bag)
+    }
+
+    // MARK: Faster dialling
+
+    /// Fetch the call token ahead of time (app opens, a call ends), so pressing call does not wait for it.
+    func prefetchToken() {
+        guard let state, !state.data.server.isEmpty, call == nil else { return }
+        let api = state.api
+        Task { [weak self] in
+            if let token = try? await api.voiceToken() { self?.cachedToken = (token, Date()) }
+        }
+    }
+
+    private func takeCachedToken() -> String? {
+        defer { cachedToken = nil }
+        guard let cached = cachedToken, Date().timeIntervalSince(cached.at) < 90 else { return nil }
+        return cached.value
     }
 
     // MARK: Status text
@@ -148,9 +166,10 @@ final class CallCoordinator: ObservableObject {
             overrides = AgentOverrides(firstMessage: opening, language: c.language.map { Language(rawValue: $0) })
         }
         let config = ConversationConfig(agentOverrides: overrides, dynamicVariables: vars)
+        let preFetched = takeCachedToken()
         do {
             call?.phase = c.incoming ? .connecting : .calling
-            _ = try await client.startVoiceConversation(.conversationToken { try await api.voiceToken() }, config: config)
+            _ = try await client.startVoiceConversation(.conversationToken { if let preFetched { return preFetched }; return try await api.voiceToken() }, config: config)
         } catch is CancellationError {
             // hung up before it connected
         } catch {
@@ -318,6 +337,10 @@ final class CallCoordinator: ObservableObject {
         Task { await client.endConversation() }
         cleanUpAudio()
         dismiss(after: 0.9)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            self?.prefetchToken()
+        }
     }
 
     private func cleanUpAudio() {

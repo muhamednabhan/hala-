@@ -46,7 +46,11 @@ async function build(): Promise<Phone> {
   const publish = async (e: { type: never | string; data: Record<string, unknown>; conversationId?: string }) =>
     h.stores.events.publish({ id: randomUUID(), ts: new Date().toISOString(), conversationId: e.conversationId, type: e.type as never, data: e.data })
 
+  // eslint-disable-next-line prefer-const
+  let sms: SmsService
   const agent = createElevenTextAgent({
+    // An answer that arrives after its turn was returned (a slow tool) still reaches the phone, via the next poll.
+    onLate: (to, text) => { void sms.sendFromAgent(to, text) },
     getSignedUrl: async () => {
       const id = agentId('phone')
       if (!id) throw new Error('the phone agent is not set up (run: npm run agent:sync -- --channel phone)')
@@ -67,7 +71,7 @@ async function build(): Promise<Phone> {
     return { audioUrl: `/api/phone/audio/${id}`, durationSec: Math.max(1, Math.round(bytes.length / 8000)) } // 64 kbps = 8000 B/s
   }
 
-  const sms = createSmsService({ store, agent, synthesize, publish })
+  sms = createSmsService({ store, agent, synthesize, publish })
   const tools = createPhoneTools({
     store, secret: h.secret, publish,
     sendText: (phone, text) => sms.sendFromAgent(phone, text)

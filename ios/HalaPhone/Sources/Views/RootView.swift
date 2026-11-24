@@ -45,6 +45,7 @@ struct RootView: View {
             }
             state.announceLine()
             state.startPolling()
+            calls.prefetchToken()
             SoundPlayer.shared.setKeepAlive(state.data.keepAlive)
         }
         .onChange(of: scenePhase) { _, phase in
@@ -52,6 +53,7 @@ struct RootView: View {
             switch phase {
             case .active:
                 state.startPolling()
+                calls.prefetchToken()
                 state.markReadIfVisible()
             case .background:
                 if !state.data.keepAlive { state.stopPolling() }

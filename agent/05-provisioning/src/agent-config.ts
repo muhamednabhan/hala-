@@ -2,7 +2,10 @@ import type { ElevenLabs } from '@elevenlabs/elevenlabs-js'
 import { BILINGUAL_GREETING, FIRST_MESSAGE, buildSystemPrompt, type Service } from '@hala/core'
 import { SERVICES } from '@hala/catalogue'
 import { TOOL_NAMES, TOOL_SPECS, type ToolSpec } from '@hala/tools-api'
-import { PHONE_DYNAMIC_DEFAULTS, PHONE_PROMPT_ADDENDUM, PHONE_TOOL_NAMES, PHONE_TOOL_SPECS } from '@hala/phone'
+import {
+  HUMAN_LLM, HUMAN_TTS_MODEL, HUMAN_VOICE_PROMPT, PHONE_DYNAMIC_DEFAULTS, PHONE_GREETING, PHONE_PROMPT_ADDENDUM, PHONE_TOOL_NAMES, PHONE_TOOL_SPECS,
+  SPOKEN_BEFORE_TOOLS, humanTts, humanTurn
+} from '@hala/phone'
 
 /**
  * Where the agent runs. They differ only in audio format:
@@ -26,6 +29,13 @@ export interface AgentConfigOptions {
   temperature?: number
   /** Give a web/robot agent the "caller reads a link code" tool too. The phone agent always has it. */
   contactTool?: boolean
+  /**
+   * The "talks like a person" profile: a faster model, quicker turn-taking, spoken fillers while a tool runs, and a more
+   * natural voice. On by default for the phone agent; `agent:sync --human` applies it to web/robot too.
+   */
+  humanVoice?: boolean
+  /** TTS model override (HALA_TTS_MODEL), e.g. eleven_flash_v2_5 to go back to the plain fast model. */
+  ttsModel?: ElevenLabs.TtsConversationalModel
 }
 
 /** Female, multilingual premade voice that handles English and Arabic on the flash multilingual model. */
@@ -42,7 +52,7 @@ export const TTS_MODEL: ElevenLabs.TtsConversationalModel = 'eleven_flash_v2_5'
 export const agentName = (channel: Channel = 'web') =>
   channel === 'robot' ? 'HALA Concierge (robot)' : channel === 'phone' ? 'HALA Concierge (phone)' : 'HALA Concierge'
 
-function toWebhookTool(spec: ToolSpec, baseUrl: string, secret: string): ElevenLabs.PromptAgentApiModelInputToolsItem {
+function toWebhookTool(spec: ToolSpec, baseUrl: string, secret: string, speakFirst = false): ElevenLabs.PromptAgentApiModelInputToolsItem {
   const entries = Object.entries(spec.params)
   const properties: Record<string, ElevenLabs.LiteralJsonSchemaProperty> = {
     // The conversation id is filled in by ElevenLabs, never by the model. It ties events to the live screen.
@@ -56,7 +66,7 @@ function toWebhookTool(spec: ToolSpec, baseUrl: string, secret: string): ElevenL
     name: spec.name,
     description: spec.description,
     responseTimeoutSecs: spec.timeoutSecs,
-    preToolSpeech: spec.preSpeech,
+    preToolSpeech: speakFirst && SPOKEN_BEFORE_TOOLS.includes(spec.name) ? ('force' as const) : spec.preSpeech,
     apiSchema: {
       url: `${baseUrl.replace(/\/$/, '')}/api/tools/${spec.name}`,
       method: 'POST',
@@ -85,6 +95,7 @@ export function buildAgentConfig(o: AgentConfigOptions) {
   const services = o.services ?? SERVICES
   const robot = channel === 'robot'
   const phone = channel === 'phone'
+  const human = o.humanVoice ?? phone
 
   const basePrompt = buildSystemPrompt({
     services,
@@ -95,21 +106,24 @@ export function buildAgentConfig(o: AgentConfigOptions) {
     }
   })
 
-  const prompt = phone ? `${basePrompt}
-${PHONE_PROMPT_ADDENDUM}` : basePrompt
+  const prompt = `${basePrompt}${phone ? `
+${PHONE_PROMPT_ADDENDUM}` : ''}${human ? `
+${HUMAN_VOICE_PROMPT}` : ''}`
   const extraTools = phone ? PHONE_TOOL_SPECS : o.contactTool ? PHONE_TOOL_SPECS.filter((t) => t.name === PHONE_TOOL_NAMES.lookupContact) : []
 
   const conversationConfig = {
     agent: {
       language: BASE_LANGUAGE,
       ...(phone ? { dynamicVariables: { dynamicVariablePlaceholders: { ...PHONE_DYNAMIC_DEFAULTS } } } : {}),
-      firstMessage: BILINGUAL_GREETING,
+      firstMessage: phone ? PHONE_GREETING : BILINGUAL_GREETING,
       prompt: {
         prompt,
-        llm: o.llm ?? DEFAULT_LLM,
+        llm: o.llm ?? (human ? (HUMAN_LLM as ElevenLabs.Llm) : DEFAULT_LLM),
+        // A voice answer is a sentence or two. Capping it, and switching model "thinking" off, is what keeps replies quick.
+        ...(human ? { maxTokens: 220, thinkingBudget: 0 } : {}),
         temperature: o.temperature ?? 0.3,
         timezone: 'Asia/Dubai',
-        tools: [...TOOL_SPECS, ...extraTools].map((s) => toWebhookTool(s, o.publicBaseUrl, o.toolSecret)),
+        tools: [...TOOL_SPECS, ...extraTools].map((s) => toWebhookTool(s, o.publicBaseUrl, o.toolSecret, human)),
         builtInTools: {
           endCall: { name: 'end_call', params: { systemToolType: 'end_call' as const } },
           languageDetection: { name: 'language_detection', params: { systemToolType: 'language_detection' as const } }
@@ -117,17 +131,21 @@ ${PHONE_PROMPT_ADDENDUM}` : basePrompt
       }
     },
     tts: {
-      modelId: TTS_MODEL,
+      modelId: o.ttsModel ?? (human ? (HUMAN_TTS_MODEL as ElevenLabs.TtsConversationalModel) : TTS_MODEL),
       voiceId: o.voiceId ?? DEFAULT_VOICE_ID,
-      stability: 0.55, similarityBoost: 0.8, speed: 1,
+      ...(human ? humanTts : { stability: 0.55, similarityBoost: 0.8, speed: 1 }),
       ...(robot ? { agentOutputAudioFormat: 'pcm_16000' as const } : {})
     },
     asr: {
       keywords: ['HALA', 'DSO', 'NOC', 'هلا'],
       ...(robot ? { userInputAudioFormat: 'pcm_16000' as const } : {})
     },
-    turn: { turnEagerness: 'normal' as const, spellingPatience: 'auto' as const, silenceEndCallTimeout: 45 },
-    conversation: { maxDurationSeconds: 600 },
+    turn: human ? humanTurn : { turnEagerness: 'normal' as const, spellingPatience: 'auto' as const, silenceEndCallTimeout: 45 },
+    conversation: {
+      maxDurationSeconds: 600,
+      // The defaults, plus "a tool is starting": the text channel needs it to know a reply is still on its way.
+      ...(phone ? { clientEvents: ['audio', 'interruption', 'agent_response', 'user_transcript', 'agent_response_correction', 'agent_tool_request', 'agent_tool_response'] as ElevenLabs.ClientEvent[] } : {})
+    },
     languagePresets: {
       en: { overrides: { agent: { language: 'en', firstMessage: FIRST_MESSAGE.en } } }
     }

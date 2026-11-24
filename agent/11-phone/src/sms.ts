@@ -122,12 +122,21 @@ export function createSmsService(o: SmsServiceOptions) {
     return { message, replies }
   }
 
+  /** The app opened a thread: get the agent session ready so the first text is answered at full speed. */
+  async function warm(rawPhone: string): Promise<void> {
+    const phone = normalizePhone(rawPhone)
+    if (!phone || !o.agent.warm) return
+    const contact = await store.contactByPhone(phone)
+    const history = (await store.messagesFor(phone)).slice(-8).map((m) => ({ from: m.from, text: m.text }))
+    await o.agent.warm({ phone, name: contact?.name, language: contact?.language ?? 'en', history, firstMessage: BILINGUAL_GREETING })
+  }
+
   /** HALA texts a phone on its own (a follow-up the agent asked for, or a proactive notice). */
   async function sendFromAgent(phone: string, text: string): Promise<PhoneMessage> {
     return store.addMessage({ phone, from: 'agent', kind: 'text', text: text.replace(/\s+/g, ' ').trim().slice(0, 600) })
   }
 
-  return { receive, sendFromAgent }
+  return { receive, sendFromAgent, warm }
 }
 
 export type SmsService = ReturnType<typeof createSmsService>

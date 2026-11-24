@@ -125,12 +125,15 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .orb span { animation: none !important; transition: none !important; }
 }
 
-/* "Text HALA from your phone": the QR card on the stage */
-.phonelink { display: flex; gap: 14px; align-items: center; text-align: start; width: 100%; max-width: 420px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); }
-.phonelink-qr { flex: none; border-radius: 10px; background: #fff; padding: 4px; }
-.phonelink-copy { display: grid; gap: 4px; font-size: 0.88rem; color: var(--muted); }
-.phonelink-copy strong { color: var(--ink); font-size: 0.98rem; }
-.phonelink-copy b { color: var(--ink); letter-spacing: 0.12em; font-variant-numeric: tabular-nums; }
-.phonelink-ok { margin: 0; font-weight: 700; color: var(--accent); }
-@media (max-width: 480px) { .phonelink { flex-direction: column; text-align: center; } }
-
+/* The phone QR: a white tile (a QR must stay dark on light, in dark mode too) on the page's own panel and line colours */
+.qr { position: relative; width: 208px; height: 208px; padding: 16px; display: grid; place-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 1px 0 var(--line), 0 12px 28px -18px var(--ink); }
+.qr-img { display: block; width: 176px; height: 176px; border-radius: 10px; background: #fff; transition: opacity 0.3s ease, filter 0.3s ease; }
+.qr-skeleton { width: 176px; height: 176px; border-radius: 10px; background: var(--accent-soft); animation: qr-pulse 1.4s ease-in-out infinite; }
+.qr-retry { width: 56px; height: 56px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); font-size: 1.6rem; line-height: 1; }
+.qr-check { position: absolute; inset: 16px; display: grid; place-items: center; border-radius: 10px; color: var(--accent-ink); animation: qr-pop 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.qr-check::before { content: ''; position: absolute; width: 84px; height: 84px; border-radius: 999px; background: var(--accent); }
+.qr-check svg { position: relative; }
+.qr-linked .qr-img { opacity: 0.12; filter: blur(2px); }
+@keyframes qr-pulse { 50% { opacity: 0.55; } }
+@keyframes qr-pop { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .qr-skeleton, .qr-check { animation: none; } .qr-img { transition: none; } }

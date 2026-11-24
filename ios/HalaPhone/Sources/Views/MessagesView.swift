@@ -120,6 +120,7 @@ struct ThreadView: View {
             }
         }
         .onAppear {
+            state.announceLine() // also warms the agent connection, so the first text is answered at full speed
             state.markRead()
             if state.focusComposer { focused = true; state.focusComposer = false }
         }

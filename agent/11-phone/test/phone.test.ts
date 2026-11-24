@@ -344,6 +344,37 @@ describe('text agent', () => {
     expect(socket.sent.filter((m) => m.type === 'user_message')).toHaveLength(2)
   })
 
+  it('delivers an answer that arrives after its turn was returned (a slow tool) as its own message', async () => {
+    const late: string[] = []
+    let socket!: FakeSocket
+    const agent = createElevenTextAgent({
+      getSignedUrl: async () => 'wss://x', settleMs: 20, onLate: (_p, t) => late.push(t),
+      createSocket: () => (socket = new FakeSocket((s, m) => {
+        if (m.type === 'conversation_initiation_client_data') queueMicrotask(() => { s.push({ type: 'conversation_initiation_metadata', conversation_initiation_metadata_event: { conversation_id: 'c' } }); s.push({ type: 'agent_response', agent_response_event: { agent_response: 'Welcome. I am an AI.' } }) })
+        if (m.type === 'user_message') setTimeout(() => s.push({ type: 'agent_response', agent_response_event: { agent_response: 'Let me check that.' } }), 5)
+      }))
+    })
+    expect((await agent.reply(ctx, 'fee?')).texts).toEqual(['Let me check that.'])
+    socket.push({ type: 'agent_response', agent_response_event: { agent_response: 'The demo fee is AED 100.' } })
+    expect(late).toEqual(['The demo fee is AED 100.'])
+  })
+
+  it('a steady stream of pings does not keep a finished turn open', async () => {
+    let socket!: FakeSocket
+    const agent = createElevenTextAgent({
+      getSignedUrl: async () => 'wss://x', settleMs: 30, turnTimeoutMs: 5000,
+      createSocket: () => (socket = new FakeSocket((s, m) => {
+        if (m.type === 'conversation_initiation_client_data') queueMicrotask(() => { s.push({ type: 'conversation_initiation_metadata', conversation_initiation_metadata_event: { conversation_id: 'c' } }); s.push({ type: 'agent_response', agent_response_event: { agent_response: 'Welcome.' } }) })
+        if (m.type === 'user_message') setTimeout(() => s.push({ type: 'agent_response', agent_response_event: { agent_response: 'Answer.' } }), 5)
+      }))
+    })
+    const ping = setInterval(() => socket?.push({ type: 'ping', ping_event: { event_id: 1 } }), 10)
+    const started = Date.now()
+    await agent.reply({ ...ctx, firstMessage: 'Welcome.' }, 'hi')
+    clearInterval(ping)
+    expect(Date.now() - started).toBeLessThan(1500)
+  })
+
   it('answers pings and fails clearly when the agent stays silent', async () => {
     let socket!: FakeSocket
     const agent = createElevenTextAgent({

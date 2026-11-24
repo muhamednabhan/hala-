@@ -8,6 +8,6 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: Request) {
   const code = new URL(req.url).searchParams.get('code')?.toUpperCase() ?? ''
   if (!code || !(await (await phone()).store.getCode(code))) return new Response('unknown code', { status: 404 })
-  const svg = await QRCode.toString(deepLink(code, publicBase(req)), { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#14201d', light: '#ffffff' } })
+  const svg = await QRCode.toString(deepLink(code, publicBase(req)), { type: 'svg', margin: 0, errorCorrectionLevel: 'M', color: { dark: '#0e6b5c', light: '#ffffff' } })
   return new Response(svg, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' } })
 }

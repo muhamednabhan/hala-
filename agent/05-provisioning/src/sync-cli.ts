@@ -4,7 +4,7 @@ import { HALA_ENV_FILE, ensureToolSecret, isPublicHttps, readHalaEnv, setHalaVar
 import { redact, syncAgent } from './sync'
 
 /**
- * npm run agent:sync -- [--channel web|robot|phone|both|all] [--contact-tool] [--dry-run] [--base-url https://...]
+ * npm run agent:sync -- [--channel web|robot|phone|both|all] [--contact-tool] [--human] [--dry-run] [--base-url https://...]
  *
  * Creates or updates the ElevenLabs agent(s) from code. Safe to re-run: it updates in place and pins
  * the agent id in .env.hala. --dry-run prints the config (secret redacted) and needs no API key.
@@ -36,7 +36,7 @@ if (!dry && !process.env.ELEVENLABS_API_KEY) {
 }
 
 for (const channel of channels) {
-  const config = buildAgentConfig({ channel, publicBaseUrl: baseUrl || 'https://example.invalid', toolSecret: secret, voiceId: get('HALA_VOICE_ID'), contactTool: flag('contact-tool') })
+  const config = buildAgentConfig({ channel, publicBaseUrl: baseUrl || 'https://example.invalid', toolSecret: secret, voiceId: get('HALA_VOICE_ID'), contactTool: flag('contact-tool'), humanVoice: channel === 'phone' || flag('human') ? true : undefined, ttsModel: get('HALA_TTS_MODEL') as never })
   if (dry) {
     console.log(JSON.stringify(redact(config, secret), null, 2))
     continue

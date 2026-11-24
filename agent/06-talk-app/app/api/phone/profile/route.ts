@@ -11,5 +11,7 @@ export async function POST(req: Request) {
   if (!number) return json({ error: 'phone is required' }, 400)
   const name = typeof b.name === 'string' ? b.name.replace(/\s+/g, ' ').trim().slice(0, 60) : undefined
   const contact = await (await phone()).store.touchContact(number, { name: name || undefined, language: b.language === 'ar' ? 'ar' : b.language === 'en' ? 'en' : undefined })
+  // The app just opened (or switched line): connect the agent now so the first text is quick.
+  void (await phone()).sms.warm(number)
   return json({ ok: true, linkedCodes: contact.codes.length })
 }

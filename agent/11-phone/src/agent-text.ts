@@ -28,6 +28,8 @@ export interface TextTurnContext {
 }
 
 export interface TextAgent {
+  /** Open the session ahead of the first text, so that text does not pay for the connection. Never throws. */
+  warm?(ctx: TextTurnContext): Promise<void>
   reply(ctx: TextTurnContext, userText: string): Promise<{ texts: string[]; conversationId?: string }>
   close(phone: string): void
 }
@@ -42,6 +44,8 @@ export interface TextAgentOptions {
   turnTimeoutMs?: number
   /** How long to let the agent finish its opening line before the first text is sent. Sending during it derails the turn. */
   openingWaitMs?: number
+  /** An agent line that arrives after its turn was already returned (a slow tool made it late). Deliver it as its own message. */
+  onLate?: (phone: string, text: string) => void
   idleMs?: number
   now?: () => number
 }
@@ -57,18 +61,20 @@ interface Session {
   lastType: string
   lastUsed: number
   openingSeen: boolean
+  turns: number
   firstMessage: string
   /** Serialises turns: two quick texts must not interleave. */
   chain: Promise<unknown>
 }
 
+const CONTENT_EVENTS = new Set(['agent_response', 'agent_chat_response_part', 'agent_tool_request', 'agent_tool_response'])
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
 
 export function createElevenTextAgent(o: TextAgentOptions): TextAgent & { sessions: () => number } {
   const now = o.now ?? Date.now
-  const settleMs = o.settleMs ?? 2500
-  const afterToolMs = o.afterToolMs ?? 7000
+  const settleMs = o.settleMs ?? 700
+  const afterToolMs = o.afterToolMs ?? 4000
   const turnTimeoutMs = o.turnTimeoutMs ?? 40_000
   const idleMs = o.idleMs ?? 10 * 60_000
   const openingWaitMs = o.openingWaitMs ?? 5000
@@ -87,15 +93,19 @@ export function createElevenTextAgent(o: TextAgentOptions): TextAgent & { sessio
       ws.addEventListener('error', () => reject(new Error('could not open the agent connection')), { once: true })
     })
     const s: Session = {
-      ws, closed: false, active: false, chunks: [], inflight: 0, lastEventAt: now(), lastType: '', lastUsed: now(), openingSeen: false,
+      ws, closed: false, active: false, chunks: [], inflight: 0, lastEventAt: now(), lastType: '', lastUsed: now(), openingSeen: false, turns: 0,
       firstMessage: ctx.firstMessage, chain: Promise.resolve()
     }
     ws.addEventListener('close', () => { s.closed = true })
     ws.addEventListener('message', (ev) => {
       let msg: Record<string, any>
       try { msg = JSON.parse(String(ev.data)) } catch { return }
-      s.lastEventAt = now()
-      s.lastType = String(msg.type ?? '')
+      // Only real conversation events count as activity. Heartbeats (ping) and bookkeeping events keep arriving
+      // for the whole session, so counting them would mean a turn never looks finished.
+      if (CONTENT_EVENTS.has(String(msg.type))) {
+        s.lastEventAt = now()
+        s.lastType = String(msg.type)
+      }
       switch (msg.type) {
         case 'conversation_initiation_metadata':
           s.conversationId = msg.conversation_initiation_metadata_event?.conversation_id
@@ -103,11 +113,12 @@ export function createElevenTextAgent(o: TextAgentOptions): TextAgent & { sessio
         case 'agent_response': {
           const text = msg.agent_response_event?.agent_response
           if (!s.active) s.openingSeen = true
-          // The opening line arrives on its own; the thread already shows our own copy of it.
-          if (typeof text === 'string' && text.trim() && s.active && norm(text) !== norm(s.firstMessage)) s.chunks.push(text.trim())
+          if (typeof text !== 'string' || !text.trim() || norm(text) === norm(s.firstMessage)) break // the opening line: the thread shows our own copy
+          if (s.active) s.chunks.push(text.trim())
+          else if (s.turns > 0 && o.onLate) o.onLate(ctx.phone, text.trim())
           break
         }
-        case 'agent_tool_request': s.inflight++; break
+        case 'agent_tool_request': s.inflight++; break // (not every agent is set to send these; the quiet-time wait covers it)
         case 'agent_tool_response': s.inflight = Math.max(0, s.inflight - 1); break
         case 'ping': ws.send(JSON.stringify({ type: 'pong', event_id: msg.ping_event?.event_id })); break
       }
@@ -144,6 +155,7 @@ export function createElevenTextAgent(o: TextAgentOptions): TextAgent & { sessio
   async function turn(s: Session, text: string): Promise<string[]> {
     s.chunks = []
     s.inflight = 0
+    s.turns++
     s.active = true
     s.lastEventAt = now()
     s.ws.send(JSON.stringify({ type: 'user_message', text }))
@@ -179,6 +191,14 @@ export function createElevenTextAgent(o: TextAgentOptions): TextAgent & { sessio
         sessions.delete(ctx.phone)
         throw e
       }
+    },
+
+    async warm(ctx) {
+      try {
+        const existing = sessions.get(ctx.phone)
+        if (existing && !existing.closed) { existing.lastUsed = now(); return }
+        sessions.set(ctx.phone, await openSession(ctx))
+      } catch { /* the first text will open it instead */ }
     },
 
     close(phone) {
