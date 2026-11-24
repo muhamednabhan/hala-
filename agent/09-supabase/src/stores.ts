@@ -1,6 +1,6 @@
 import {
   SlotConflictError,
-  type Booking, type EventBus, type HalaEvent, type Handover, type Lang, type Robot, type RobotCommand, type RobotLog, type RobotRepo,
+  type Booking, type EventBus, type HalaEvent, type Handover, type Lang, type Robot, type RobotCommand, type RobotLog, type RobotPatch, type RobotRepo,
   type ServiceRequest, type Stores
 } from '@hala/core'
 
@@ -104,6 +104,13 @@ const robotRow = (r: Robot): Row => ({
   mic_stream: r.micStream, half_duplex: r.halfDuplex, volume: r.volume ?? null, token_hash: r.tokenHash, desired: r.desired,
   last_seen: r.lastSeen ?? null, bridge_version: r.bridgeVersion ?? null, state: r.state ?? null, created_at: r.createdAt
 })
+const ROBOT_COLUMNS: Record<string, string> = {
+  name: 'name', notes: 'notes', ip: 'ip', domainId: 'domain_id', aimdkPath: 'aimdk_path', micStream: 'mic_stream', halfDuplex: 'half_duplex',
+  volume: 'volume', tokenHash: 'token_hash', desired: 'desired', lastSeen: 'last_seen', bridgeVersion: 'bridge_version', state: 'state'
+}
+/** Only the fields that changed, as columns. `null` clears. */
+const robotPatchRow = (f: RobotPatch): Row =>
+  Object.fromEntries(Object.entries(f).filter(([k, v]) => v !== undefined && ROBOT_COLUMNS[k]).map(([k, v]) => [ROBOT_COLUMNS[k]!, v]))
 const toRobot = (r: Row): Robot => ({
   id: String(r.id), name: String(r.name), notes: optional(r.notes as string), ip: optional(r.ip as string), domainId: optional(r.domain_id as number),
   aimdkPath: optional(r.aimdk_path as string), micStream: Number(r.mic_stream ?? 0) as Robot['micStream'], halfDuplex: Boolean(r.half_duplex),
@@ -192,7 +199,7 @@ export function createSupabaseStores(o: SupabaseOptions): Stores {
     get: async (id) => { const r = (await db.select('hala_robots', `id=eq.${enc(id)}&limit=1`))[0]; return r ? toRobot(r) : undefined },
     getByTokenHash: async (hash) => { const r = (await db.select('hala_robots', `token_hash=eq.${enc(hash)}&limit=1`))[0]; return r ? toRobot(r) : undefined },
     list: async () => (await db.select('hala_robots', 'order=created_at.asc&limit=200')).map(toRobot),
-    update: (r) => db.patch('hala_robots', `id=eq.${enc(r.id)}`, robotRow(r)),
+    patch: async (id, fields) => { const row = robotPatchRow(fields); if (Object.keys(row).length) await db.patch('hala_robots', `id=eq.${enc(id)}`, row) },
     delete: async (id) => { await db.call(`hala_robots?id=eq.${enc(id)}`, { method: 'DELETE', prefer: 'return=minimal' }) },
     addCommand: (c) => db.insert('hala_robot_commands', commandRow(c)),
     pendingCommands: async (robotId) => (await db.select('hala_robot_commands', `robot_id=eq.${enc(robotId)}&status=eq.pending&order=created_at.asc&limit=20`)).map(toCommand),

@@ -8,9 +8,9 @@ import { createSupabaseStores, supabaseReady } from '../src'
  * A small in-memory PostgREST: enough of the API for our adapter (eq filters, order, limit, insert, patch,
  * upsert) plus the two constraints that matter: primary keys and the one-confirmed-booking-per-slot index.
  */
-function fakeSupabase(tables = ['hala_bookings', 'hala_requests', 'hala_handovers', 'hala_events', 'hala_idempotency']) {
+function fakeSupabase(tables = ['hala_bookings', 'hala_requests', 'hala_handovers', 'hala_events', 'hala_idempotency', 'hala_robots', 'hala_robot_commands', 'hala_robot_logs']) {
   const data = new Map<string, Record<string, any>[]>(tables.map((t) => [t, []]))
-  const pk: Record<string, string> = { hala_bookings: 'ref', hala_requests: 'ref', hala_handovers: 'id', hala_events: 'id', hala_idempotency: 'key' }
+  const pk: Record<string, string> = { hala_bookings: 'ref', hala_requests: 'ref', hala_handovers: 'id', hala_events: 'id', hala_idempotency: 'key', hala_robots: 'id', hala_robot_commands: 'id', hala_robot_logs: 'id' }
   const calls: { method: string; url: string; auth: string | null }[] = []
 
   const conflict = (what: string) => new Response(JSON.stringify({ code: '23505', message: 'duplicate key value', details: what }), { status: 409 })
@@ -37,6 +37,7 @@ function fakeSupabase(tables = ['hala_bookings', 'hala_requests', 'hala_handover
       if (limit !== null) res = res.slice(0, Number(limit))
       return new Response(JSON.stringify(res.map(out)), { status: 200 })
     }
+    if (method === 'POST' && Array.isArray(body)) { rows.push(...body.map((r) => ({ created_at: new Date().toISOString(), ...r }))); return new Response(null, { status: 201 }) }
     if (method === 'POST') {
       const key = pk[table]!
       const idx = rows.findIndex((r) => r[key] === body[key])
@@ -130,6 +131,32 @@ describe('supabase adapter', () => {
     const e: HalaEvent = { id: '1', ts: '2026-11-24T08:00:00Z', type: 'fact_lookup', data: {} }
     await expect(stores.events.publish(e)).resolves.toBeUndefined()
     expect(seen).toHaveLength(1)
+  })
+})
+
+describe('supabase robots', () => {
+  const robot = { id: 'rb_1', name: 'A', micStream: 0 as const, halfDuplex: false, tokenHash: 'h', desired: 'stopped' as const, createdAt: '2026-11-24T08:00:00Z' }
+  it('patches only the given columns, maps names, and null clears', async () => {
+    const { f, data } = fakeSupabase()
+    const stores = createSupabaseStores(opts(f))
+    await stores.robots.create({ ...robot, ip: '10.0.1.41', volume: 30 })
+    await stores.robots.patch('rb_1', { desired: 'running', lastSeen: '2026-11-24T09:00:00Z', ip: null, state: { phase: 'idle' } })
+    const row = data.get('hala_robots')![0]!
+    expect(row).toMatchObject({ desired: 'running', last_seen: '2026-11-24T09:00:00Z', ip: null, state: { phase: 'idle' }, volume: 30, name: 'A' })
+    const back = (await stores.robots.get('rb_1'))!
+    expect(back).toMatchObject({ desired: 'running', volume: 30, lastSeen: '2026-11-24T09:00:00Z' })
+    expect(back.ip).toBeUndefined()
+  })
+  it('finds a robot by token hash and stores commands and logs', async () => {
+    const stores = createSupabaseStores(opts(fakeSupabase().f))
+    await stores.robots.create(robot)
+    expect((await stores.robots.getByTokenHash('h'))?.id).toBe('rb_1')
+    await stores.robots.addCommand({ id: 'cm_1', robotId: 'rb_1', type: 'speaker_test', payload: {}, status: 'pending', createdAt: '2026-11-24T08:00:00Z' })
+    expect(await stores.robots.pendingCommands('rb_1')).toHaveLength(1)
+    await stores.robots.updateCommand({ id: 'cm_1', robotId: 'rb_1', type: 'speaker_test', payload: {}, status: 'done', result: 'ok', createdAt: '2026-11-24T08:00:00Z', doneAt: '2026-11-24T08:00:02Z' })
+    expect(await stores.robots.pendingCommands('rb_1')).toHaveLength(0)
+    await stores.robots.addLogs([{ id: 'lg_1', robotId: 'rb_1', ts: '2026-11-24T08:00:03Z', level: 'user', message: 'مرحبا' }])
+    expect((await stores.robots.logs('rb_1', 10))[0]!.message).toBe('مرحبا')
   })
 })
 

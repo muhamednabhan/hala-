@@ -70,6 +70,26 @@ describe('robot service', () => {
     expect(again.commands).toEqual([])
     expect((await svc.detail(view.id))!.commands[0]).toMatchObject({ status: 'done', result: 'spoken' })
   })
+  it('a sync that read the robot before Start was pressed does not undo Start (lost-update race)', async () => {
+    const { svc } = setup()
+    const { robot: v, token } = await svc.create({ name: 'A', micStream: 1 })
+    const stale = (await svc.authenticate(token))!            // the bridge's request starts: desired is "stopped"
+    await svc.update(v.id, { desired: 'running', volume: 45 }) // meanwhile the admin presses Start and sets a volume
+    await svc.sync(stale, { state: { phase: 'idle' } })        // the old request finishes
+    const after = (await svc.detail(v.id))!.robot
+    expect(after).toMatchObject({ desired: 'running', volume: 45, micStream: 1 })
+    expect(after.state?.phase).toBe('idle')
+  })
+  it('an update from the page does not wipe what the bridge reported', async () => {
+    const { svc } = setup()
+    const { robot: v, token } = await svc.create({ name: 'A' })
+    await svc.sync((await svc.authenticate(token))!, { version: '1.0.0', state: { phase: 'conversation' } })
+    await svc.update(v.id, { notes: 'hello' })
+    const after = (await svc.detail(v.id))!.robot
+    expect(after.state?.phase).toBe('conversation')
+    expect(after.lastSeen).toBeTruthy()
+    expect(after.bridgeVersion).toBe('1.0.0')
+  })
   it('rejects malformed sync messages', async () => {
     const { svc } = setup()
     const { token } = await svc.create({ name: 'A' })

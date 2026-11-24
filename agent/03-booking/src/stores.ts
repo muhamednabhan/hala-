@@ -101,9 +101,13 @@ export function createStores(opts: { file?: string } = {}): Stores & { reset: ()
       get: async (id) => clone(state.robots.find((r) => r.id === id)),
       getByTokenHash: async (hash) => clone(state.robots.find((r) => r.tokenHash === hash)),
       list: async () => structuredClone(state.robots),
-      update: async (r) => {
-        const i = state.robots.findIndex((x) => x.id === r.id)
-        if (i >= 0) state.robots[i] = structuredClone(r)
+      patch: async (id, fields) => {
+        const r = state.robots.find((x) => x.id === id)
+        if (!r) return
+        for (const [k, v] of Object.entries(fields)) {
+          if (v === null) delete (r as unknown as Record<string, unknown>)[k]
+          else if (v !== undefined) (r as unknown as Record<string, unknown>)[k] = structuredClone(v)
+        }
         save()
       },
       delete: async (id) => {

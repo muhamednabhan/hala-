@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import {
   systemClock,
-  type Clock, type Robot, type RobotCommand, type RobotCommandType, type RobotLog, type RobotRepo, type RobotState
+  type Clock, type Robot, type RobotCommand, type RobotCommandType, type RobotLog, type RobotPatch, type RobotRepo, type RobotState
 } from '@hala/core'
 
 /** Bump when the bridge protocol or script changes. The page shows it next to what the robot reports. */
@@ -87,20 +87,20 @@ export function createRobotService(opts: { robots: RobotRepo; clock?: Clock }) {
   async function update(id: string, input: unknown) {
     const robot = await robots.get(id)
     if (!robot) return undefined
-    const patch = updateRobotInput.parse(input)
-    const next: Robot = { ...robot, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) }
-    // Clearing an optional field: the form sends an empty string, which parses to undefined and is dropped above.
     const raw = (input ?? {}) as Record<string, unknown>
-    for (const k of ['notes', 'ip', 'domainId', 'aimdkPath', 'volume'] as const) if (raw[k] === '' || raw[k] === null) delete next[k]
-    await robots.update(next)
-    return view(next, clock.now())
+    const parsed = updateRobotInput.parse(input)
+    const fields: RobotPatch = Object.fromEntries(Object.entries(parsed).filter(([, v]) => v !== undefined))
+    // The form sends an empty string to clear an optional field.
+    for (const k of ['notes', 'ip', 'domainId', 'aimdkPath', 'volume'] as const) if (raw[k] === '' || raw[k] === null) (fields as Record<string, unknown>)[k] = null
+    await robots.patch(id, fields)
+    return view((await robots.get(id))!, clock.now())
   }
 
   async function regenerateToken(id: string) {
     const robot = await robots.get(id)
     if (!robot) return undefined
     const token = newToken()
-    await robots.update({ ...robot, tokenHash: hashToken(token), lastSeen: undefined, state: undefined })
+    await robots.patch(id, { tokenHash: hashToken(token), lastSeen: null, state: null })
     return { token }
   }
 
@@ -128,8 +128,9 @@ export function createRobotService(opts: { robots: RobotRepo; clock?: Clock }) {
   async function sync(robot: Robot, body: unknown) {
     const msg = syncInput.parse(body ?? {})
     const ts = nowIso()
-    const updated: Robot = { ...robot, lastSeen: ts, bridgeVersion: msg.version ?? robot.bridgeVersion, state: (msg.state as RobotState | undefined) ?? robot.state }
-    await robots.update(updated)
+    // Only the bridge-owned fields. The settings and desired state belong to the website and may have just changed.
+    await robots.patch(robot.id, { lastSeen: ts, ...(msg.version ? { bridgeVersion: msg.version } : {}), ...(msg.state ? { state: msg.state as RobotState } : {}) })
+    const updated = (await robots.get(robot.id)) ?? robot
 
     if (msg.logs?.length) {
       const logs: RobotLog[] = msg.logs.map((l) => ({ id: `lg_${randomUUID().slice(0, 10)}`, robotId: robot.id, ts, level: l.level, message: l.message }))

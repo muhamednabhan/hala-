@@ -36,13 +36,20 @@ export interface HandoverRepo {
   list: () => Promise<Handover[]>
 }
 
+/** A partial change to a robot. `null` clears an optional field. Never includes id or createdAt. */
+export type RobotPatch = { [K in keyof Omit<Robot, 'id' | 'createdAt'>]?: Robot[K] | null }
+
 /** Robots paired with the website, their remote commands and the bridge's log lines. */
 export interface RobotRepo {
   create: (r: Robot) => Promise<void>
   get: (id: string) => Promise<Robot | undefined>
   getByTokenHash: (hash: string) => Promise<Robot | undefined>
   list: () => Promise<Robot[]>
-  update: (r: Robot) => Promise<void>
+  /**
+   * Change only the given fields. The bridge syncs every 2 s while the admin presses buttons, so whole-row writes
+   * would silently undo each other (a Start pressed during a sync would be reverted).
+   */
+  patch: (id: string, fields: RobotPatch) => Promise<void>
   delete: (id: string) => Promise<void>
   addCommand: (c: RobotCommand) => Promise<void>
   /** Commands not yet picked up, oldest first. */
