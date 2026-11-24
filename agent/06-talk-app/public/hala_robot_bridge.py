@@ -328,25 +328,21 @@ class Bridge:
         self.mic_q.put(pcm)
 
     def mic_loop(self):
-        """Stream the mic every 100 ms; send silence when the robot hears nothing,
-        so ElevenLabs can tell when the person stopped talking."""
-        buf = bytearray()
+        """Every 100 ms send whatever the microphone gave us, however little. Send silence ONLY when nothing arrived at all.
+        (Waiting for a full 100 ms and sending silence otherwise chopped speech into pieces with gaps, which the speech
+        recogniser heard as noise.) Silence keeps the stream alive so ElevenLabs can tell when the person stopped talking."""
         nxt = time.monotonic()
         while self.running:
+            buf = bytearray()
             try:
                 while True:
                     buf += self.mic_q.get_nowait()
             except queue.Empty:
                 pass
-            if len(buf) >= CHUNK:
-                out = bytes(buf[:len(buf) - len(buf) % 2])
-                buf.clear()
-            else:
-                out = SILENCE
+            n = len(buf) - len(buf) % 2
+            out = bytes(buf[:n]) if n else SILENCE
             if self.connected:
                 self.ws_send({"user_audio_chunk": base64.b64encode(out).decode()})
-            else:
-                buf.clear()
             nxt += 0.1
             time.sleep(max(0.0, nxt - time.monotonic()))
 
@@ -592,9 +588,24 @@ class Bridge:
             self.results.append({"id": cmd["id"], "ok": ok, "result": text})
         self.ensure_session()
 
+    def keep_warm(self):
+        """While a conversation runs, touch the tools endpoint every 25 s. It answers 401 (no secret) but that is enough to keep
+        the serverless function warm, so the agent's first tool call does not wait for a cold start."""
+        def ping():
+            try:
+                req = urllib.request.Request(HALA_URL + "/api/tools/find_service", data=b"{}", method="POST", headers={"content-type": "application/json"})
+                urllib.request.urlopen(req, timeout=10).read()
+            except Exception:
+                pass
+        threading.Thread(target=ping, daemon=True).start()
+
     def control_loop(self):
+        last_warm = 0.0
         while self.running:
             self.sync_once()
+            if self.desired == "running" and time.monotonic() - last_warm > 25:
+                last_warm = time.monotonic()
+                self.keep_warm()
             time.sleep(SYNC_SECS)
 
     # ------------------------------------------------------------------ lifecycle

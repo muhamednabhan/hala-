@@ -54,6 +54,8 @@ export interface Service {
   timelineText?: string
   /** Dispute and edge-case policy the agent must follow for this service. */
   policy?: string
+  /** One short line for the voice prompt (the full policy is returned by find_service). */
+  promptRule?: string
   /** Extra facts about the service (reference prices, options). */
   notes?: string[]
   /** The one clarifying question to ask when the caller is vague about this service. */

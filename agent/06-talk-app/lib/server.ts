@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
-import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js'
 import { createStores } from '@hala/booking'
 import type { Stores } from '@hala/core'
 import { createSupabaseStores, robotTablesReady, supabaseReady } from '@hala/supabase'
@@ -16,7 +15,7 @@ import { HALA_ENV_FILE, ensureToolSecret, readHalaEnv, setHalaVar } from '@hala/
  * bookings. Persisted to .data/hala-store.json so a restart keeps bookings and handovers.
  */
 interface Hala { api: ToolApi; stores: Stores; robots: RobotService; adminKey: string; storeKind: 'supabase' | 'file'; storeNote?: string; robotsNote?: string }
-const g = globalThis as unknown as { __hala?: Promise<Hala>; __halaEleven?: ElevenLabsClient }
+const g = globalThis as unknown as { __hala?: Promise<Hala> }
 
 // The whole project must not be traced into the server bundle: the data and env paths are runtime-only.
 const repoRoot = resolve(/*turbopackIgnore: true*/ process.cwd(), '..', '..')
@@ -52,6 +51,10 @@ async function build(): Promise<Hala> {
   let robotTables = false
   if (setting('HALA_STORE') === 'file') {
     storeNote = 'HALA_STORE=file'
+  } else if (url && serviceKey && setting('HALA_STORE') === 'supabase') {
+    // Trusted: skip the readiness probes (about eight database round trips on EVERY cold start).
+    storeKind = 'supabase'
+    robotTables = true
   } else if (url && serviceKey) {
     // Both checks at once: a cold start pays for them, and each one is a network trip to the database.
     const [ready, robotsOk] = await Promise.all([supabaseReady({ url, serviceKey }), robotTablesReady({ url, serviceKey })])
@@ -78,18 +81,13 @@ async function build(): Promise<Hala> {
 
 export const hala = (): Promise<Hala> => (g.__hala ??= build())
 
-/** Server-side only. The API key never reaches the browser. */
-export function elevenlabs(): ElevenLabsClient {
-  g.__halaEleven ??= new ElevenLabsClient({ apiKey: setting('ELEVENLABS_API_KEY') })
-  return g.__halaEleven
-}
-
 export const hasApiKey = () => Boolean(setting('ELEVENLABS_API_KEY'))
 export const hasToolSecret = () => Boolean(setting('HALA_TOOL_SECRET'))
 export const hasPublicUrl = () => Boolean(setting('PUBLIC_BASE_URL'))
 
 /** Server-side settings lookup for routes that need one (voice id etc.). */
 export const setting_ = setting
+export { setting }
 
 export const agentId = (channel: 'web' | 'robot' = 'web') =>
   setting(channel === 'robot' ? 'HALA_AGENT_ID_ROBOT' : 'HALA_AGENT_ID')

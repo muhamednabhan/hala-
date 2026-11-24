@@ -1,4 +1,5 @@
-import { agentId, elevenlabs, hasApiKey, json } from '@/lib/server'
+import { elevenlabs } from '@/lib/eleven'
+import { agentId, hasApiKey, json } from '@/lib/server'
 import { robotFromRequest } from '@/lib/robot-auth'
 
 export const dynamic = 'force-dynamic'

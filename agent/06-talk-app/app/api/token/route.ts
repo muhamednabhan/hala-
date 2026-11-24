@@ -1,4 +1,5 @@
-import { agentId, elevenlabs, hasApiKey, json } from '@/lib/server'
+import { elevenlabs } from '@/lib/eleven'
+import { agentId, hasApiKey, json } from '@/lib/server'
 import { clientKey, createRateLimiter } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'

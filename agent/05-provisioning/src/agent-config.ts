@@ -128,7 +128,9 @@ export function buildAgentConfig(o: AgentConfigOptions) {
       turnEagerness: 'eager' as const,
       speculativeTurn: true,
       spellingPatience: 'auto' as const,
-      silenceEndCallTimeout: 45,
+      // A reception robot waits: the default re-engages after 7 s ("are you still there?") and hangs up soon after.
+      turnTimeout: 30,
+      silenceEndCallTimeout: 600,
       // If the model is slow, say a short filler in the caller's language instead of leaving silence.
       softTimeoutConfig: {
         timeoutSeconds: 1.8,

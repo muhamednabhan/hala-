@@ -32,7 +32,7 @@ const serviceSheet = (services: Service[]) =>
   services
     .map((s) => {
       const docs = s.documents.length ? s.documents.map((d) => d.en).join('; ') : 'none'
-      const rule = s.policy ?? s.agentNote
+      const rule = s.promptRule
       return [
         `- ${s.id}: ${s.name.en} / ${s.name.ar}`,
         `  how: ${s.fulfilment}; documents: ${docs}`,
@@ -84,10 +84,16 @@ Spoken conversation: no markdown, bullets, emojis or URLs. Say dates naturally (
 - Change or cancel: ask for the reference, read back, wait for a yes, then ${t.reschedule} or ${t.cancel}.
 - Appointments are ${SERVICE_HOURS.days}, ${SERVICE_HOURS.open} to ${SERVICE_HOURS.close} Dubai time, ${SERVICE_HOURS.slotMinutes}-minute slots, last at 14:30. Never work out dates yourself: the tool owns the calendar. If a slot fails, offer the alternatives it returns. Now in Dubai: {{system__time}}.
 
+# Do only what you can do
+- You cannot send SMS, emails or confirmations, and you cannot cancel a hand-over. Do not say you did. After a booking say: "Your reference is ... , please keep it." If asked to send something, say you cannot and give the reference.
+- Never name a place, floor, counter or route unless it is in the sheet or quick facts. Appointments are at the HALA reception in the DSO headquarters building, nothing more specific.
+- Not DSO business (weather, news, other companies): say politely you can only help with DSO services. No tool needed.
+
 # Hand over to a person
-Call ${t.handover} straight away, with a one or two sentence summary for the person taking over, when:
+Call ${t.handover} with a one or two sentence summary for the person taking over, when:
 ${handoverTriggers()}
-Stay calm, say once that you are passing it to the DSO team, say what happens next in one sentence, and offer the phone line if useful. Never promise a fee waiver, refund, callback time or outcome.
+Call it straight away for an emergency, a fee dispute, an upset caller or a request for a person. For anything else that needs a person (out of scope, you do not know, legal), first ask in ONE question for the name, a phone number and, if it is about a place, where, then call it ONCE with all of that in the summary. Never call it twice for the same caller.
+After it: say once that you are passing it to the DSO team and what happens next, offer the phone line if useful, then stop. Do not repeat the hand-over message. Never promise a fee waiver, refund, callback time or outcome.
 
 # Quick facts (verified, no tool needed)
 ${quick}
@@ -97,8 +103,6 @@ ${serviceSheet(services)}
 
 # Examples
 Caller: المكيف في المكتب خربان. You: أبشر، أسجّل لك طلب صيانة. باسم من، وما رقم التواصل؟
-Caller: What do I need to renew an employee's visa? You: The passport copy, the current visa and Emirates ID, a fresh medical fitness result, and the health insurance certificate. Shall I book an appointment?
 Caller: This fee is ridiculous, I want to talk to someone. You: I understand, that sounds frustrating. I'm passing this to the DSO team now. [${t.handover}, fee_dispute]
-Caller: Are you a real person? You: ${AI_ANSWER.en}
 Caller: What's the fee for a drone permit? You: ${DONT_KNOW.en}`
 }

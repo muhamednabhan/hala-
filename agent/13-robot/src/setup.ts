@@ -40,8 +40,9 @@ export function prepareCommands(volume = 95): string {
   return [
     '# switch the built-in assistant off for your slot',
     `ros2 service call /aimdk_5Fmsgs/srv/SetAgentPropertiesRequest aimdk_msgs/srv/SetAgentPropertiesRequest "{contents: {properties: [{key: {value: 2}, value: only_voice}]}}"`,
-    'aima em stop-app agent',
-    'aima em start-app agent',
+    '# On Robot B the next two commands answered "app agent does not exist" (the agent module is not on this computer),',
+    '# and the call above had already returned code 0, so they were skipped. Only if `aima em` lists an "agent" app, run:',
+    '#   aima em stop-app agent ; aima em start-app agent',
     '',
     '# loud room? (the robot was at 72)',
     `ros2 service call /aimdk_5Fmsgs/srv/SetVolume aimdk_msgs/srv/SetVolume "{audio_volume: ${volume}}"`,
@@ -56,7 +57,7 @@ export function restoreCommands(volume = 72): string {
   return [
     `ros2 service call /aimdk_5Fmsgs/srv/SetVolume aimdk_msgs/srv/SetVolume "{audio_volume: ${volume}}"`,
     `ros2 service call /aimdk_5Fmsgs/srv/SetAgentPropertiesRequest aimdk_msgs/srv/SetAgentPropertiesRequest "{contents: {properties: [{key: {value: 2}, value: normal}]}}"`,
-    'aima em stop-app agent',
-    'aima em start-app agent'
+    '# only if `aima em` lists an "agent" app on your robot (it did not on Robot B):',
+    '#   aima em stop-app agent ; aima em start-app agent'
   ].join('\n')
 }

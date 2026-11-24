@@ -149,7 +149,8 @@ describe('setup command', () => {
   it('prepare and restore use the organisers commands, in the right order', () => {
     const prep = prepareCommands()
     expect(prep).toMatch(/value: 2\}, value: only_voice/)
-    expect(prep.indexOf('stop-app agent')).toBeLessThan(prep.indexOf('start-app agent'))
+    expect(prep).toMatch(/#\s+aima em stop-app agent ; aima em start-app agent/)
+    expect(prep).not.toMatch(/^aima em/m) // commented out: it failed on Robot B
     expect(prep).toContain('audio_volume: 95')
     expect(prep).toContain('ros2 topic info -v --no-daemon /aima/hal/audio/playback')
     const back = restoreCommands()

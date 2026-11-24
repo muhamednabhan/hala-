@@ -103,6 +103,7 @@ export const SERVICES: Service[] = [
   },
   {
     id: 'establishment_card',
+    promptRule: 'Late renewal means monthly fines. If they dispute a fine: hand over (fee_dispute).',
     name: d('Establishment card', 'بطاقة المنشأة'),
     summary: d("The company's immigration file with DSO: needed before any employee visa and renewed every year.", 'ملف الشركة لدى الهجرة في الواحة: مطلوب قبل أي تأشيرة موظف ويُجدَّد سنوياً.'),
     voiceSummary: d(
@@ -156,6 +157,7 @@ export const SERVICES: Service[] = [
   },
   {
     id: 'licence_renewal',
+    promptRule: 'Late penalties or a disputed invoice: do not negotiate, hand over (fee_dispute).',
     name: d('Licence renewal', 'تجديد الرخصة'),
     summary: d("Renewing the company's trade licence for the next year.", 'تجديد الرخصة التجارية للشركة للسنة القادمة.'),
     voiceSummary: d(
@@ -273,6 +275,7 @@ export const SERVICES: Service[] = [
   },
   {
     id: 'access_card',
+    promptRule: 'A card that fails to scan from a defect within 30 days is replaced free after inspection (DEMO). If they dispute the replacement fee or ask for a waiver: do not argue or promise a refund, hand over (fee_dispute) or offer desk_resolution.',
     name: d('Access / ID card', 'بطاقة الدخول'),
     summary: d('The smart card for 24/7 entry to Dtec, DSO offices, parking barriers and residential buildings.', 'البطاقة الذكية للدخول على مدار الساعة إلى دِتيك ومكاتب الواحة وبوابات المواقف والمباني السكنية.'),
     voiceSummary: d(
@@ -304,6 +307,7 @@ export const SERVICES: Service[] = [
   // ------------------------------------------------------------ residents and everyone
   {
     id: 'maintenance',
+    promptRule: 'Ticket via log_request: ask building or community and unit, category (AC, plumbing, electrical, other), emergency or routine, name, phone.',
     name: d('Maintenance request', 'طلب صيانة'),
     summary: d('Logging a building or unit problem so a technician can be sent.', 'تسجيل عطل في مبنى أو وحدة ليتم إرسال فني.'),
     voiceSummary: d(
@@ -332,6 +336,7 @@ export const SERVICES: Service[] = [
   },
   {
     id: 'complaint',
+    promptRule: 'Ticket via log_request. A fee dispute, refund or waiver request is NOT a complaint: hand over (fee_dispute).',
     name: d('Complaint', 'شكوى'),
     summary: d('Registering a service, community or billing complaint with a tracking reference.', 'تسجيل شكوى عن الخدمة أو المجتمع أو الفواتير مع رقم متابعة.'),
     voiceSummary: d(
@@ -362,6 +367,7 @@ export const SERVICES: Service[] = [
   },
   {
     id: 'desk_resolution',
+    promptRule: 'Offer when a caller with a dispute would rather come in. No promise of any outcome.',
     name: d('In-person HALA desk appointment', 'موعد في مكتب هلا'),
     summary: d('A booked slot at the HALA desk to resolve something face to face with a DSO officer.', 'موعد محجوز في مكتب هلا لحل المسألة وجهاً لوجه مع موظف من الواحة.'),
     audience: 'both', category: 'support', fulfilment: 'appointment',
@@ -375,6 +381,7 @@ export const SERVICES: Service[] = [
   },
   {
     id: 'ewallet_machine',
+    promptRule: 'Info only: lobby of the DSO HQ building, 24 hours. No balances, fees or limits.',
     name: d('24-hour e-wallet deposit machine', 'جهاز إيداع المحفظة الإلكترونية على مدار 24 ساعة'),
     summary: d('A machine in the lobby of the DSO HQ building where you can top up your DSO e-wallet at any hour.', 'جهاز في ردهة مبنى مقر واحة دبي للسيليكون الرئيسي لإيداع رصيد في محفظتك الإلكترونية في أي وقت.'),
     audience: 'both', category: 'info', fulfilment: 'info',

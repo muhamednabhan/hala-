@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { DEFAULT_VOICE_ID } from '@hala/provisioning'
-import { elevenlabs, hasApiKey, json, setting_ } from '@/lib/server'
+import { elevenlabs } from '@/lib/eleven'
+import { hasApiKey, json, setting_ } from '@/lib/server'
 import { robotFromRequest } from '@/lib/robot-auth'
 import { createRateLimiter } from '@/lib/rate-limit'
 

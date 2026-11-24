@@ -19,7 +19,7 @@ const AI_AR = /ذكاء اصطناعي|الذكاء الاصطناعي/
 // The prompt now carries the service sheet (documents, DEMO fee and time per service) so the agent can answer the commonest
 // questions with NO tool call, which is the biggest single latency saving. That costs prompt length; the budget catches
 // runaway growth, since a longer prompt makes every turn a little slower.
-const PROMPT_BUDGET = 14_000
+const PROMPT_BUDGET = 14_500
 
 describe('AI disclosure in every first message', () => {
   it('bilingual opener (the agent default) says AI in English and Arabic', () => {

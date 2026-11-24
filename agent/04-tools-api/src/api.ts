@@ -278,15 +278,16 @@ export function createToolApi(opts: ToolApiOptions) {
     async [TOOL_NAMES.handover](a, conversationId) {
       const reason = (HANDOVER_REASONS as readonly string[]).includes(String(a.reason)) ? (a.reason as HandoverReason) : 'other'
       const handover = {
-        id: `HO-${randomUUID().slice(0, 8)}`, reason, language: lang(a.language), summary: clean(a.summary, 500),
+        // Digits only, so the agent can read it aloud (a random hex id came out as "H O four a one three...").
+        id: `HO-${Math.floor(10000 + Math.random() * 90000)}`, reason, language: lang(a.language), summary: clean(a.summary, 500),
         callerName: clean(a.caller_name, 80) || undefined, contact: clean(a.contact, 80) || undefined,
         conversationId, status: 'open' as const, createdAt: clock.now().toISOString()
       }
       await stores.handovers.create(handover)
       return {
         body: {
-          ok: true, handover_id: handover.id, human_contact: HUMAN_CONTACT,
-          instruction: 'Tell the caller once, calmly, that the DSO team has been notified and a person will take over. Say what happens next in one sentence. You may offer the phone number (read it in groups) or an in-person appointment at the HALA desk (service desk_resolution) if they prefer. Do not promise a callback time, a refund, a waiver or an outcome.'
+          ok: true, handover_id: handover.id, handover_ref_spoken: spokenRef(handover.id), human_contact: HUMAN_CONTACT,
+          instruction: 'Tell the caller once, calmly, that the DSO team has been notified and a person will take over. Say what happens next in one sentence. You may offer the phone number (read it in groups) or an in-person appointment at the HALA desk (service desk_resolution) if they prefer. Do not promise a callback time, a refund, a waiver or an outcome. You cannot cancel a hand-over: if the caller changes their mind, say you have noted it and leave it at that.'
         },
         event: { type: 'handover_requested', data: { id: handover.id, reason, language: handover.language, summary: handover.summary, caller: handover.callerName } }
       }
