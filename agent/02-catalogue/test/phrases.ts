@@ -198,6 +198,50 @@ export const PHRASES: Record<string, { en: string[]; ar: string[] }> = {
       'بطاقة تعريف للدخول'
     ]
   },
+  licence_types: {
+    en: [
+      'what types of licence does DSO offer',
+      'which licence do I need for a software company',
+      'what is the difference between a service licence and a trade licence',
+      'tell me about the industrial licence',
+      'what is a business operation permit',
+      'which activities are allowed under a licence',
+      'I want to set up a company, which licence fits',
+      'are there licence categories for e-commerce'
+    ],
+    ar: [
+      'ما هي أنواع الرخص',
+      'أي رخصة أحتاج لشركة برمجيات',
+      'أريد أعرف نوع الرخصة المناسب',
+      'ما الأنشطة المسموحة في الرخصة',
+      'أبغى أعرف عن الرخصة الصناعية',
+      'كيف أفتح شركة في الواحة',
+      'ما هو تصريح تشغيل الأعمال',
+      'أريد تأسيس شركة وأي رخصة تناسبني'
+    ]
+  },
+  desk_resolution: {
+    en: [
+      'I want to come to the HALA desk',
+      'can I meet someone face to face',
+      'I would rather resolve this in person',
+      'book me an in person appointment at reception',
+      'I want to visit reception to sort this out',
+      'a resolution appointment please',
+      'can I see an officer in person',
+      'I prefer a face to face meeting at the desk'
+    ],
+    ar: [
+      'أريد مقابلة شخصية في مكتب هلا',
+      'أبغى أزور الاستقبال',
+      'أفضل أحل الموضوع وجهاً لوجه',
+      'احجز لي موعد في مكتب هلا',
+      'أريد أراجع بنفسي في الاستقبال',
+      'هل أقدر أقابل موظف وجهاً لوجه',
+      'أحتاج موعد في الاستقبال',
+      'أريد مقابلة شخصية مع موظف'
+    ]
+  },
   maintenance: {
     en: [
       'my AC is broken',
