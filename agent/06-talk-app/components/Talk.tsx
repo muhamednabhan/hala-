@@ -5,19 +5,18 @@ import { useHala, type LanguagePref } from '@/lib/use-hala'
 import { EventCard } from './EventCard'
 
 const LANGS: { id: LanguagePref; label: string; hint: string }[] = [
-  { id: 'auto', label: 'EN · عربي', hint: 'Greets in both, follows you' },
+  { id: 'auto', label: 'Auto', hint: 'Greets in both languages and follows you' },
   { id: 'en', label: 'English', hint: 'Start in English' },
   { id: 'ar', label: 'العربية', hint: 'ابدأ بالعربية' }
 ]
 
-/** The orb breathes with the agent's voice. Reads the output level every frame, no React re-render. */
+/** A soft orb that swells with the agent's voice. Reads the output level every frame without re-rendering React. */
 function Orb({ live, mode, level }: { live: boolean; mode: string; level: () => number }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let raf = 0
     const tick = () => {
-      const v = live ? Math.min(1, level()) : 0
-      ref.current?.style.setProperty('--level', v.toFixed(3))
+      ref.current?.style.setProperty('--level', (live ? Math.min(1, level()) : 0).toFixed(3))
       raf = requestAnimationFrame(tick)
     }
     tick()
@@ -33,35 +32,27 @@ function Orb({ live, mode, level }: { live: boolean; mode: string; level: () => 
 function Panel() {
   const hala = useHala()
   const [pref, setPref] = useState<LanguagePref>('auto')
+  const [tab, setTab] = useState<'chat' | 'activity'>('chat')
+  const [seen, setSeen] = useState(0)
   const logEnd = useRef<HTMLDivElement>(null)
-  useEffect(() => { logEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [hala.lines.length])
+  useEffect(() => { logEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [hala.lines.length, tab])
+  useEffect(() => { if (tab === 'activity') setSeen(hala.events.length) }, [tab, hala.events.length])
 
   const connecting = hala.starting || hala.status === 'connecting'
-  const label = hala.live ? (hala.mode === 'speaking' ? 'HALA is speaking' : 'Listening') : connecting ? 'Connecting' : 'Ready'
-  const labelAr = hala.live ? (hala.mode === 'speaking' ? 'هلا تتحدث' : 'أستمع إليك') : connecting ? 'جارٍ الاتصال' : 'جاهزة'
+  const headline = hala.live ? (hala.mode === 'speaking' ? 'HALA is speaking' : 'Listening') : connecting ? 'Connecting' : 'Ready when you are'
+  const headlineAr = hala.live ? (hala.mode === 'speaking' ? 'هلا تتحدث' : 'أستمع إليك') : connecting ? 'جارٍ الاتصال' : 'جاهزة عندما تكون جاهزاً'
+  const unseen = tab === 'activity' ? 0 : hala.events.length - seen
 
   return (
-    <main className="shell">
-      <header className="top">
-        <div className="brand">
-          <span className="brand-name">HALA</span>
-          <span className="brand-ar" lang="ar">هلا</span>
-          <span className="brand-sub">Dubai Silicon Oasis · Voice concierge</span>
-        </div>
-        <div className="badges">
-          <span className="badge badge-ai" title="HALA is an AI assistant, not a person">AI assistant · مساعد ذكاء اصطناعي</span>
-          <span className="badge badge-demo" title="Every fee, time and booking here is demonstration data">Demo data · بيانات تجريبية</span>
-        </div>
-      </header>
-
-      <section className="stage" aria-label="Voice conversation">
+    <main className="page talk">
+      <section className="card stage" aria-label="Voice conversation">
         <Orb live={hala.live} mode={hala.mode} level={hala.getOutputVolume} />
-        <p className="state" aria-live="polite">
-          <span>{label}</span>
-          <span className="state-ar" lang="ar">{labelAr}</span>
-        </p>
+        <div className="state" aria-live="polite">
+          <p className="state-main">{headline}</p>
+          <p className="state-ar" lang="ar">{headlineAr}</p>
+        </div>
 
-        <div className="lang" role="radiogroup" aria-label="Language">
+        <div className="seg-group" role="radiogroup" aria-label="Language">
           {LANGS.map((l) => (
             <button
               key={l.id} type="button" role="radio" aria-checked={pref === l.id} title={l.hint}
@@ -71,55 +62,64 @@ function Panel() {
           ))}
         </div>
 
-        <div className="controls">
+        <div className="actions">
           {hala.live ? (
             <>
-              <button type="button" className="btn btn-end" onClick={() => hala.stop()}>End conversation</button>
+              <button type="button" className="btn btn-quiet" onClick={() => hala.stop()}>End conversation</button>
               <button type="button" className="btn btn-ghost" aria-pressed={hala.isMuted} onClick={() => hala.setMuted(!hala.isMuted)}>
-                {hala.isMuted ? 'Unmute mic' : 'Mute mic'}
+                {hala.isMuted ? 'Unmute' : 'Mute'}
               </button>
             </>
           ) : (
-            <button type="button" className="btn btn-start" disabled={connecting} onClick={() => void hala.start(pref)}>
-              {connecting ? 'Connecting…' : 'Start talking · ابدأ'}
+            <button type="button" className="btn btn-primary" disabled={connecting} onClick={() => void hala.start(pref)}>
+              {connecting ? 'Connecting…' : 'Start talking'}
             </button>
           )}
         </div>
 
-        {hala.error && <p className="alert" role="alert">{hala.error}</p>}
+        {hala.error && <p className="notice notice-bad" role="alert">{hala.error}</p>}
         {hala.toolProblem && (
-          <p className="alert alert-warn" role="status">
-            A step could not reach our server. Check that the tunnel is running and the agent was synced (npm run agent:sync).
+          <p className="notice notice-warn" role="status">
+            One step could not reach our server. Check the connection and that the agent was synced.
           </p>
         )}
-        <p className="fineprint">Say &ldquo;Hello&rdquo; or «مرحبا». You can switch language at any time.</p>
+        <p className="hint">Say “Hello” or «مرحبا». You can switch language whenever you like.</p>
       </section>
 
-      <section className="log" aria-label="Transcript">
-        <h2>Conversation <span lang="ar">المحادثة</span></h2>
-        <div className="log-body" aria-live="polite">
-          {hala.lines.length === 0 && <p className="empty">The transcript appears here.</p>}
-          {hala.lines.map((l) => (
-            <p key={l.id} className={`line line-${l.role}`} dir="auto">
-              <span className="who">{l.role === 'agent' ? 'HALA' : 'You'}</span>
-              {l.text}
-            </p>
-          ))}
-          <div ref={logEnd} />
+      <section className="card feed" aria-label="Conversation and activity">
+        <div className="tabs" role="tablist">
+          <button type="button" role="tab" id="tab-chat" aria-selected={tab === 'chat'} aria-controls="panel-chat" className={tab === 'chat' ? 'tab tab-on' : 'tab'} onClick={() => setTab('chat')}>
+            Conversation
+          </button>
+          <button type="button" role="tab" id="tab-activity" aria-selected={tab === 'activity'} aria-controls="panel-activity" className={tab === 'activity' ? 'tab tab-on' : 'tab'} onClick={() => setTab('activity')}>
+            What HALA did{unseen > 0 && <span className="dot" aria-label={`${unseen} new`}>{unseen}</span>}
+          </button>
         </div>
+
+        {tab === 'chat' ? (
+          <div role="tabpanel" id="panel-chat" aria-labelledby="tab-chat" className="panel" aria-live="polite">
+            {hala.lines.length === 0 && <p className="empty">Your conversation will appear here.</p>}
+            {hala.lines.map((l) => (
+              <p key={l.id} className={`bubble bubble-${l.role}`} dir="auto">
+                <span className="who">{l.role === 'agent' ? 'HALA' : 'You'}</span>
+                {l.text}
+              </p>
+            ))}
+            <div ref={logEnd} />
+          </div>
+        ) : (
+          <div role="tabpanel" id="panel-activity" aria-labelledby="tab-activity" className="panel">
+            {hala.events.length === 0
+              ? <p className="empty">Bookings, requests and hand-overs show up here as they happen.</p>
+              : <ol className="events">{[...hala.events].reverse().map((e) => <EventCard key={e.id} event={e} />)}</ol>}
+          </div>
+        )}
       </section>
 
-      <aside className="activity" aria-label="What HALA did">
-        <h2>What HALA did <span lang="ar">ما فعلته هلا</span></h2>
-        {hala.events.length === 0
-          ? <p className="empty">Bookings, requests and hand-overs show up here as they happen.</p>
-          : <ol className="events">{[...hala.events].reverse().map((e) => <EventCard key={e.id} event={e} />)}</ol>}
-      </aside>
-
-      <footer className="foot">
-        HALA is an AI assistant. Fees, processing times and bookings shown here are demonstration values, not official DSO figures.
-        <span lang="ar" dir="rtl"> هلا مساعدة ذكاء اصطناعي. الرسوم والمدد والحجوزات المعروضة قيم تجريبية وليست أرقاماً رسمية.</span>
-      </footer>
+      <p className="foot">
+        HALA is an AI assistant, not a person. Fees, times and bookings here are demonstration values, not official DSO figures.
+        <span lang="ar" dir="rtl"> هلا مساعدة ذكاء اصطناعي. الرسوم والمدد والحجوزات المعروضة قيم تجريبية.</span>
+      </p>
     </main>
   )
 }

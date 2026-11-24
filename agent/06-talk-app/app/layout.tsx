@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { SiteNav } from '@/components/SiteNav'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -6,12 +7,15 @@ export const metadata: Metadata = {
   description: 'A bilingual (Arabic and English) voice concierge for Dubai Silicon Oasis. AI assistant. Demo data.'
 }
 
-export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#0e6b5c' }
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#f6f4ef' }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <SiteNav />
+        {children}
+      </body>
     </html>
   )
 }
