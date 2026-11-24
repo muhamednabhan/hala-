@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 antialiased;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans Arabic', sans-serif;
+}
+
+@keyframes feed-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+    background-color: rgb(51 65 85);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.feed-in {
+  animation: feed-in 0.6s ease-out;
+}
