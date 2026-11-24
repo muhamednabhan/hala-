@@ -5,12 +5,13 @@ export const dynamic = 'force-dynamic'
 const allow = createRateLimiter(12, 60_000)
 
 /**
- * GET /api/token?channel=web  ->  { token, agentId }
+ * GET /api/token?channel=web|robot|phone  ->  { token, agentId }
  * Exchanges the server-side API key for a short-lived WebRTC token. The key itself never leaves the server.
  */
 export async function GET(req: Request) {
   if (!allow(clientKey(req))) return json({ error: 'Too many requests, try again in a minute.' }, 429)
-  const channel = new URL(req.url).searchParams.get('channel') === 'robot' ? 'robot' : 'web'
+  const requested = new URL(req.url).searchParams.get('channel')
+  const channel = requested === 'robot' || requested === 'phone' ? requested : 'web'
   const id = agentId(channel)
   if (!id) return json({ error: 'The agent is not set up yet. Run `npm run agent:sync` first.' }, 503)
   if (!hasApiKey()) return json({ error: 'ELEVENLABS_API_KEY is missing on the server.' }, 503)

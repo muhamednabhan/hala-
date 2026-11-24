@@ -1,0 +1,101 @@
+name: HALA Phone (iOS)
+
+# Builds the HALA Phone iPhone app on a GitHub-hosted Mac, because it cannot be built on Windows.
+# Output: an UNSIGNED HalaPhone.ipa (artifact). Sideload it with AltStore or Sideloadly using a free Apple ID.
+# It also takes simulator screenshots so the UI can be reviewed without a phone.
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 'HALA server the app opens pointed at (the cloudflared URL). Optional: scanning the robot QR sets it too.'
+        required: false
+        default: ''
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      SERVER_URL: ${{ inputs.server_url }}
+    defaults:
+      run:
+        working-directory: ios/HalaPhone
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        run: xcodegen generate
+
+      - name: Resolve Swift packages (ElevenLabs SDK, LiveKit)
+        run: xcodebuild -resolvePackageDependencies -project HalaPhone.xcodeproj -scheme HalaPhone
+
+      # This is the compile check: every Swift error shows up here.
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project HalaPhone.xcodeproj -scheme HalaPhone \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim \
+            CODE_SIGNING_ALLOWED=NO "HALA_DEFAULT_SERVER=$SERVER_URL" 2>&1 | tee build-sim.log | grep -E "error:|warning: unre|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build-sim.log
+
+      - name: Simulator screenshots
+        continue-on-error: true
+        run: bash scripts/screenshots.sh
+
+      - name: Build the unsigned device IPA
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project HalaPhone.xcodeproj -scheme HalaPhone \
+            -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" "HALA_DEFAULT_SERVER=$SERVER_URL" 2>&1 | tee build-device.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build-device.log
+          rm -rf Payload HalaPhone.ipa
+          mkdir Payload
+          cp -R build/device/Build/Products/Release-iphoneos/HalaPhone.app Payload/
+          zip -qry HalaPhone.ipa Payload
+          ls -lh HalaPhone.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HalaPhone-ipa
+          path: ios/HalaPhone/HalaPhone.ipa
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-screenshots
+          path: ios/HalaPhone/shots
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-logs
+          path: |
+            ios/HalaPhone/build-sim.log
+            ios/HalaPhone/build-device.log
+          if-no-files-found: ignore

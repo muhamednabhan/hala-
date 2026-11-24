@@ -119,6 +119,8 @@ export const EVENT_TYPES = [
   'request_logged',
   'handover_requested',
   'fact_lookup',
+  'phone_linked',
+  'phone_text_sent',
   'tool_error'
 ] as const
 export type HalaEventType = (typeof EVENT_TYPES)[number]

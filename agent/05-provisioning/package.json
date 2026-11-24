@@ -12,6 +12,7 @@
     "@hala/core": "*",
     "@hala/catalogue": "*",
     "@hala/tools-api": "*",
+    "@hala/phone": "*",
     "@elevenlabs/elevenlabs-js": "^2.79.0",
     "zod": "^4.6.7"
   }

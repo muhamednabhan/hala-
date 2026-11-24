@@ -3,6 +3,7 @@ import { ConversationProvider } from '@elevenlabs/react'
 import { useEffect, useRef, useState } from 'react'
 import { useHala, type LanguagePref } from '@/lib/use-hala'
 import { EventCard } from './EventCard'
+import { PhoneLink } from './PhoneLink'
 
 const LANGS: { id: LanguagePref; label: string; hint: string }[] = [
   { id: 'auto', label: 'EN · عربي', hint: 'Greets in both, follows you' },
@@ -93,6 +94,7 @@ function Panel() {
           </p>
         )}
         <p className="fineprint">Say &ldquo;Hello&rdquo; or «مرحبا». You can switch language at any time.</p>
+        <PhoneLink />
       </section>
 
       <section className="log" aria-label="Transcript">

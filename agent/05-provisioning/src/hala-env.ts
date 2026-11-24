@@ -7,6 +7,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
  *   HALA_TOOL_SECRET      shared secret on every tool webhook
  *   HALA_AGENT_ID         pinned web agent
  *   HALA_AGENT_ID_ROBOT   pinned robot agent
+ *   HALA_AGENT_ID_PHONE   pinned phone-app agent
+ *   HACKCLUB_AI_KEY       Hack Club AI key for proactive-call wording (optional)
+ *   HACKCLUB_AI_MODEL     model id override (optional)
  *   PUBLIC_BASE_URL       https URL ElevenLabs can reach (cloudflared)
  *   HALA_VOICE_ID         chosen voice
  */

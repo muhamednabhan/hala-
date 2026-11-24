@@ -25,9 +25,9 @@ loadRootEnv('.env.hala')
 
 const config: NextConfig = {
   // Workspace packages ship TypeScript source, so Next compiles them.
-  transpilePackages: ['@hala/core', '@hala/catalogue', '@hala/booking', '@hala/tools-api', '@hala/provisioning', '@hala/supabase'],
+  transpilePackages: ['@hala/core', '@hala/catalogue', '@hala/booking', '@hala/tools-api', '@hala/provisioning', '@hala/supabase', '@hala/phone'],
   turbopack: { root: repoRoot },
-  serverExternalPackages: ['@elevenlabs/elevenlabs-js'],
+  serverExternalPackages: ['@elevenlabs/elevenlabs-js', 'qrcode'],
   poweredByHeader: false,
   async headers() {
     return [{

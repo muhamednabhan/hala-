@@ -2,13 +2,16 @@ import type { ElevenLabs } from '@elevenlabs/elevenlabs-js'
 import { BILINGUAL_GREETING, FIRST_MESSAGE, buildSystemPrompt, type Service } from '@hala/core'
 import { SERVICES } from '@hala/catalogue'
 import { TOOL_NAMES, TOOL_SPECS, type ToolSpec } from '@hala/tools-api'
+import { PHONE_DYNAMIC_DEFAULTS, PHONE_PROMPT_ADDENDUM, PHONE_TOOL_NAMES, PHONE_TOOL_SPECS } from '@hala/phone'
 
 /**
  * Where the agent runs. They differ only in audio format:
  *  - web:   browser WebRTC. ElevenLabs defaults.
  *  - robot: the AgiBot/MangoBot bridge sends and expects PCM 16 kHz (Handover.md, phase 1).
+ *  - phone: the HALA Phone iOS app (calls over WebRTC, texts over the server). Its own agent, so the
+ *           caller-number variables and phone tools can never affect the web and robot agents.
  */
-export type Channel = 'web' | 'robot'
+export type Channel = 'web' | 'robot' | 'phone'
 
 export interface AgentConfigOptions {
   channel?: Channel
@@ -21,6 +24,8 @@ export interface AgentConfigOptions {
   services?: Service[]
   /** Sampling temperature: low, because this agent must not improvise facts. */
   temperature?: number
+  /** Give a web/robot agent the "caller reads a link code" tool too. The phone agent always has it. */
+  contactTool?: boolean
 }
 
 /** Female, multilingual premade voice that handles English and Arabic on the flash multilingual model. */
@@ -34,7 +39,8 @@ export const DEFAULT_LLM: ElevenLabs.Llm = 'gemini-3.8-flash'
 export const BASE_LANGUAGE = 'ar'
 export const TTS_MODEL: ElevenLabs.TtsConversationalModel = 'eleven_flash_v2_5'
 
-export const agentName = (channel: Channel = 'web') => (channel === 'robot' ? 'HALA Concierge (robot)' : 'HALA Concierge')
+export const agentName = (channel: Channel = 'web') =>
+  channel === 'robot' ? 'HALA Concierge (robot)' : channel === 'phone' ? 'HALA Concierge (phone)' : 'HALA Concierge'
 
 function toWebhookTool(spec: ToolSpec, baseUrl: string, secret: string): ElevenLabs.PromptAgentApiModelInputToolsItem {
   const entries = Object.entries(spec.params)
@@ -78,8 +84,9 @@ export function buildAgentConfig(o: AgentConfigOptions) {
   const channel = o.channel ?? 'web'
   const services = o.services ?? SERVICES
   const robot = channel === 'robot'
+  const phone = channel === 'phone'
 
-  const prompt = buildSystemPrompt({
+  const basePrompt = buildSystemPrompt({
     services,
     tools: {
       findService: TOOL_NAMES.findService, listSlots: TOOL_NAMES.listSlots, book: TOOL_NAMES.book,
@@ -88,16 +95,21 @@ export function buildAgentConfig(o: AgentConfigOptions) {
     }
   })
 
+  const prompt = phone ? `${basePrompt}
+${PHONE_PROMPT_ADDENDUM}` : basePrompt
+  const extraTools = phone ? PHONE_TOOL_SPECS : o.contactTool ? PHONE_TOOL_SPECS.filter((t) => t.name === PHONE_TOOL_NAMES.lookupContact) : []
+
   const conversationConfig = {
     agent: {
       language: BASE_LANGUAGE,
+      ...(phone ? { dynamicVariables: { dynamicVariablePlaceholders: { ...PHONE_DYNAMIC_DEFAULTS } } } : {}),
       firstMessage: BILINGUAL_GREETING,
       prompt: {
         prompt,
         llm: o.llm ?? DEFAULT_LLM,
         temperature: o.temperature ?? 0.3,
         timezone: 'Asia/Dubai',
-        tools: TOOL_SPECS.map((s) => toWebhookTool(s, o.publicBaseUrl, o.toolSecret)),
+        tools: [...TOOL_SPECS, ...extraTools].map((s) => toWebhookTool(s, o.publicBaseUrl, o.toolSecret)),
         builtInTools: {
           endCall: { name: 'end_call', params: { systemToolType: 'end_call' as const } },
           languageDetection: { name: 'language_detection', params: { systemToolType: 'language_detection' as const } }

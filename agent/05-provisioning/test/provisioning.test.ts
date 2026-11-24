@@ -53,6 +53,30 @@ describe('agent config', () => {
     expect(cc.agent.prompt.temperature).toBeLessThanOrEqual(0.4)
     expect(cc.agent.prompt.timezone).toBe('Asia/Dubai')
   })
+  it('the phone agent is its own agent: extra tools, caller variables with defaults, same rules', () => {
+    const phone = buildAgentConfig({ ...opts, channel: 'phone' })
+    expect(phone.name).toBe('HALA Concierge (phone)')
+    const names = (phone.conversationConfig.agent.prompt.tools as any[]).map((t) => t.name)
+    expect(names).toEqual(expect.arrayContaining([...TOOL_SPECS.map((s) => s.name), 'lookup_contact_by_code', 'send_text_message']))
+    expect(phone.conversationConfig.agent.prompt.prompt).toMatch(/\{\{caller_number\}\}/)
+    expect(phone.conversationConfig.agent.prompt.prompt).toMatch(/AI assistant/) // the base rules are still there
+    expect((phone.conversationConfig.agent as any).dynamicVariables.dynamicVariablePlaceholders.caller_number).toBe('unknown')
+    expect(phone.conversationConfig.agent.firstMessage).toMatch(/ذكاء اصطناعي/)
+  })
+  it('leaves the web and robot agents untouched by the phone feature', () => {
+    for (const channel of ['web', 'robot'] as const) {
+      const c = buildAgentConfig({ ...opts, channel })
+      expect((c.conversationConfig.agent.prompt.tools as any[]).map((t) => t.name).sort()).toEqual(TOOL_SPECS.map((s) => s.name).sort())
+      expect(c.conversationConfig.agent.prompt.prompt).not.toMatch(/caller_number/)
+      expect((c.conversationConfig.agent as any).dynamicVariables).toBeUndefined()
+    }
+  })
+  it('can opt a web/robot agent into the code lookup tool only', () => {
+    const c = buildAgentConfig({ ...opts, channel: 'robot', contactTool: true })
+    const names = (c.conversationConfig.agent.prompt.tools as any[]).map((t) => t.name)
+    expect(names).toContain('lookup_contact_by_code')
+    expect(names).not.toContain('send_text_message')
+  })
   it('the robot agent only differs in audio format and name', () => {
     const robot = buildAgentConfig({ ...opts, channel: 'robot' })
     expect(robot.name).toBe('HALA Concierge (robot)')

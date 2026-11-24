@@ -15,6 +15,7 @@ Teammate A owns Supabase, teammate B owns the admin dashboard. This folder is ev
 | `05-provisioning` | `feature/05-provisioning` | Builds the ElevenLabs agent config from code and syncs it (create or update in place) |
 | `06-talk-app` | `feature/06-talk-app` | Next.js app: talk page, `/api/token`, `/api/research`, `/api/tools/*`, `/api/events`, `/api/admin/*` |
 | `07-evals` | `feature/07-evals` | Offline evals and a live text-mode harness |
+| `11-phone` | `feature/11-phone` | The phone line for the HALA Phone iOS app: texts, voice-message replies, QR link codes, proactive calls (see its README). The app itself is in `ios/HalaPhone` |
 | `09-supabase` | `feature/09-supabase` | Supabase adapter for the storage ports, plus the SQL migration |
 
 ## How it fits together

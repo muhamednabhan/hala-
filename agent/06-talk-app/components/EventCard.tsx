@@ -41,6 +41,8 @@ function view(e: HalaEvent): View {
     case 'request_logged': return { tone: 'ok', title: `${svc?.en ?? 'Request'} logged`, ref: String(d.ref), detail: String(d.summary ?? '') }
     case 'fact_lookup': return d.found ? { tone: 'info', title: 'Answered from verified facts' } : { tone: 'warn', title: 'Not in the fact base', detail: 'Said "I don\'t know" and offered a person' }
     case 'handover_requested': return { tone: 'warn', title: `Handed over · ${REASONS[String(d.reason)] ?? 'Other'}`, detail: String(d.summary ?? '') }
+    case 'phone_linked': return { tone: 'ok', title: 'Phone linked', detail: `${String(d.phone ?? '')} can now text HALA${d.via === 'spoken_code' ? ' (code read out loud)' : ''}` }
+    case 'phone_text_sent': return { tone: 'info', title: 'Sent a text message', detail: `to ${String(d.phone ?? '')}` }
     case 'tool_error': return { tone: 'bad', title: 'A step did not work', detail: `Reason: ${String(d.code ?? d.message ?? 'unknown')}` }
   }
 }
