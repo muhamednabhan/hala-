@@ -36,7 +36,7 @@ describe('robot service', () => {
     const { svc } = setup()
     const { token } = await svc.create({ name: 'A' })
     expect((await svc.authenticate(token))?.name).toBe('A')
-    for (const bad of [undefined, '', 'hbr_nope', token.slice(0, -1) + '0', 'Bearer x', 'x'.repeat(200)]) expect(await svc.authenticate(bad)).toBeUndefined()
+    for (const bad of [undefined, '', 'hbr_nope', token.slice(0, -1) + (token.endsWith('0') ? '1' : '0'), 'Bearer x', 'x'.repeat(200)]) expect(await svc.authenticate(bad)).toBeUndefined()
   })
   it('a regenerated token invalidates the old one', async () => {
     const { svc } = setup()

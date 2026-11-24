@@ -1,6 +1,6 @@
 import type { ElevenLabs } from '@elevenlabs/elevenlabs-js'
 import { BILINGUAL_GREETING, FIRST_MESSAGE, buildSystemPrompt, type Service } from '@hala/core'
-import { SERVICES } from '@hala/catalogue'
+import { FACTS, SERVICES } from '@hala/catalogue'
 import { TOOL_NAMES, TOOL_SPECS, type ToolSpec } from '@hala/tools-api'
 
 /**
@@ -21,6 +21,8 @@ export interface AgentConfigOptions {
   services?: Service[]
   /** Sampling temperature: low, because this agent must not improvise facts. */
   temperature?: number
+  /** Thinking effort for reasoning models. Lower is faster. Leave unset to use the model's default. */
+  reasoningEffort?: ElevenLabs.LlmReasoningEffort
 }
 
 /** Female, multilingual premade voice that handles English and Arabic on the flash multilingual model. */
@@ -51,6 +53,9 @@ function toWebhookTool(spec: ToolSpec, baseUrl: string, secret: string): ElevenL
     description: spec.description,
     responseTimeoutSecs: spec.timeoutSecs,
     preToolSpeech: spec.preSpeech,
+    // A sound while a slow tool runs, so the line is never silent. Quick tools stay quiet (a typing sound for 300 ms is jarring).
+    toolCallSound: 'typing' as const,
+    toolCallSoundBehavior: spec.preSpeech === 'force' ? ('always' as const) : ('auto' as const),
     apiSchema: {
       url: `${baseUrl.replace(/\/$/, '')}/api/tools/${spec.name}`,
       method: 'POST',
@@ -81,6 +86,7 @@ export function buildAgentConfig(o: AgentConfigOptions) {
 
   const prompt = buildSystemPrompt({
     services,
+    facts: FACTS,
     tools: {
       findService: TOOL_NAMES.findService, listSlots: TOOL_NAMES.listSlots, book: TOOL_NAMES.book,
       reschedule: TOOL_NAMES.reschedule, cancel: TOOL_NAMES.cancel, logRequest: TOOL_NAMES.logRequest,
@@ -96,6 +102,9 @@ export function buildAgentConfig(o: AgentConfigOptions) {
         prompt,
         llm: o.llm ?? DEFAULT_LLM,
         temperature: o.temperature ?? 0.3,
+        // Spoken answers are short. A hard cap also stops a model from rambling and keeps time-to-last-word low.
+        maxTokens: 300,
+        ...(o.reasoningEffort ? { reasoningEffort: o.reasoningEffort } : {}),
         timezone: 'Asia/Dubai',
         tools: TOOL_SPECS.map((s) => toWebhookTool(s, o.publicBaseUrl, o.toolSecret)),
         builtInTools: {
@@ -114,7 +123,21 @@ export function buildAgentConfig(o: AgentConfigOptions) {
       keywords: ['HALA', 'DSO', 'NOC', 'هلا'],
       ...(robot ? { userInputAudioFormat: 'pcm_16000' as const } : {})
     },
-    turn: { turnEagerness: 'normal' as const, spellingPatience: 'auto' as const, silenceEndCallTimeout: 45 },
+    turn: {
+      // Answer sooner after the caller stops, and start generating during the pause before the turn is certain.
+      turnEagerness: 'eager' as const,
+      speculativeTurn: true,
+      spellingPatience: 'auto' as const,
+      silenceEndCallTimeout: 45,
+      // If the model is slow, say a short filler in the caller's language instead of leaving silence.
+      softTimeoutConfig: {
+        timeoutSeconds: 1.8,
+        useLlmGeneratedMessage: true,
+        maxSoftTimeoutsPerGeneration: 1,
+        llmGeneratedMessagePromptOverride:
+          "Say ONE very short filler (two to four words) in the caller's language while you work, such as 'One moment.', 'Let me check.', 'لحظة من فضلك.' or 'خلني أشيك.'. Do not answer the question yet."
+      }
+    },
     conversation: { maxDurationSeconds: 600 },
     languagePresets: {
       en: { overrides: { agent: { language: 'en', firstMessage: FIRST_MESSAGE.en } } }

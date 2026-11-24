@@ -90,7 +90,7 @@ describe('system prompt', () => {
     for (const r of ['fee_dispute', 'upset_caller', 'caller_requested', 'emergency']) expect(prompt).toContain(r)
   })
   it('tells the agent to read back before booking and never to do date maths', () => {
-    expect(prompt).toMatch(/READ IT BACK/)
+    expect(prompt).toMatch(/Read back once/)
     expect(prompt).toMatch(/Never work out dates yourself/)
   })
 })

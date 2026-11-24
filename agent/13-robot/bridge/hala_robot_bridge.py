@@ -27,6 +27,8 @@ Environment variables
                       HALA_MIC=processed uses /agent/process_audio_output, which stays silent until the wake word.
   HALA_SIM=1          simulation: no ROS, no robot. Pairs, syncs and talks to the agent, discards the audio.
                       Use it on a laptop to check everything except the robot's own audio.
+  HALA_ECHO_TAIL=0.3  seconds the microphone stays closed after the robot stops speaking (half duplex). Raise it
+                      if the robot hears the end of its own sentence.
   VERBOSE=1           print every event from ElevenLabs
 
 Movement stays with MangoBot: this program never publishes to a motion topic. It starts ONE ROS node.
@@ -60,6 +62,9 @@ CHUNK = BYTES_PER_SEC // 10  # 100 ms
 SILENCE = bytes(CHUNK)
 FOCUS_PRIORITY = 8           # same value as AgiBot's stream example
 SYNC_SECS = 2.0
+# Half duplex keeps the microphone closed for this long after the last audio the robot sent to its speaker.
+# Shorter = the caller can answer sooner; too short and the robot may hear the end of its own sentence.
+ECHO_TAIL = float(os.environ.get("HALA_ECHO_TAIL", "0.3"))
 
 
 def now():
@@ -368,7 +373,7 @@ class Bridge:
                     del self.spk[:n]
                 self.io.play(pcm)
                 sent += len(pcm)
-                self.speaking_until = time.monotonic() + lead + 0.5
+                self.speaking_until = time.monotonic() + lead + ECHO_TAIL
             time.sleep(0.05)
 
     def stop_speaking(self):

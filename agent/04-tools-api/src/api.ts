@@ -18,9 +18,14 @@ export interface ToolApiOptions {
   secret?: string
   /** Tests only: skip the secret check. */
   insecureNoAuth?: boolean
+  /**
+   * Do not wait for the event to be saved before answering. The live feed is told at once either way; the database write
+   * (a network trip) happens in the background, returned as `background` so a serverless host can keep it alive.
+   */
+  deferEvents?: boolean
 }
 
-export interface ToolResponse { status: number; body: Record<string, unknown> }
+export interface ToolResponse { status: number; body: Record<string, unknown>; background?: Promise<unknown> }
 
 type Args = Record<string, unknown>
 interface Outcome { body: Record<string, unknown>; event?: Pick<HalaEvent, 'type' | 'data'> }
@@ -313,7 +318,9 @@ export function createToolApi(opts: ToolApiOptions) {
     try {
       const outcome = await handler(parsed.data as Args, conversationId)
       if (outcome.event) {
-        await stores.events.publish({ id: randomUUID(), ts: clock.now().toISOString(), conversationId, ...outcome.event })
+        const saved = Promise.resolve(stores.events.publish({ id: randomUUID(), ts: clock.now().toISOString(), conversationId, ...outcome.event })).catch(() => undefined)
+        if (opts.deferEvents) return { status: 200, body: outcome.body, background: saved }
+        await saved
       }
       return { status: 200, body: outcome.body }
     } catch (error) {

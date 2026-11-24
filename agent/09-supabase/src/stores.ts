@@ -218,7 +218,7 @@ export function createSupabaseStores(o: SupabaseOptions): Stores {
 export async function robotTablesReady(o: SupabaseOptions): Promise<boolean> {
   const db = new Rest(o)
   try {
-    for (const t of ['hala_robots', 'hala_robot_commands', 'hala_robot_logs']) await db.select(t, 'limit=0')
+    await Promise.all(['hala_robots', 'hala_robot_commands', 'hala_robot_logs'].map((t) => db.select(t, 'limit=0')))
     return true
   } catch { return false }
 }
@@ -227,7 +227,7 @@ export async function robotTablesReady(o: SupabaseOptions): Promise<boolean> {
 export async function supabaseReady(o: SupabaseOptions): Promise<{ ok: true } | { ok: false; reason: string }> {
   const db = new Rest(o)
   try {
-    for (const t of ['hala_bookings', 'hala_requests', 'hala_handovers', 'hala_events', 'hala_idempotency']) await db.select(t, 'limit=0')
+    await Promise.all(['hala_bookings', 'hala_requests', 'hala_handovers', 'hala_events', 'hala_idempotency'].map((t) => db.select(t, 'limit=0')))
     return { ok: true }
   } catch (e) {
     const status = (e as { status?: number }).status

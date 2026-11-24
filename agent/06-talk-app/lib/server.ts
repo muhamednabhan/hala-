@@ -49,10 +49,13 @@ async function build(): Promise<Hala> {
   let stores: Stores
   let storeKind: Hala['storeKind'] = 'file'
   let storeNote: string | undefined
+  let robotTables = false
   if (setting('HALA_STORE') === 'file') {
     storeNote = 'HALA_STORE=file'
   } else if (url && serviceKey) {
-    const ready = await supabaseReady({ url, serviceKey })
+    // Both checks at once: a cold start pays for them, and each one is a network trip to the database.
+    const [ready, robotsOk] = await Promise.all([supabaseReady({ url, serviceKey }), robotTablesReady({ url, serviceKey })])
+    robotTables = robotsOk
     if (ready.ok) storeKind = 'supabase'
     else storeNote = `Supabase not used: ${ready.reason}`
   } else {
@@ -63,14 +66,14 @@ async function build(): Promise<Hala> {
   if (storeKind === 'supabase') {
     const opts = { url: url!, serviceKey: serviceKey! }
     stores = createSupabaseStores(opts)
-    if (!(await robotTablesReady(opts))) {
+    if (!robotTables) {
       // Bookings keep using Supabase; robots fall back to the local file until migration 002 is run.
       stores = { ...stores, robots: local().robots }
       robotsNote = 'Robot tables are missing in Supabase: run agent/09-supabase/migrations/002_hala_robots.sql. Robots are kept in a local file until then.'
     }
   } else stores = local()
   if (storeNote) console.warn(`hala: using the local file store. ${storeNote}`)
-  return { stores, storeKind, storeNote, robotsNote, robots: createRobotService({ robots: stores.robots }), api: createToolApi({ stores, secret: ensureToolSecret(process.env, halaFile()) }), adminKey: adminKey() }
+  return { stores, storeKind, storeNote, robotsNote, robots: createRobotService({ robots: stores.robots }), api: createToolApi({ stores, deferEvents: true, secret: ensureToolSecret(process.env, halaFile()) }), adminKey: adminKey() }
 }
 
 export const hala = (): Promise<Hala> => (g.__hala ??= build())

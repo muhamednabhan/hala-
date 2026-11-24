@@ -57,7 +57,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       "pass 'today', 'tomorrow', a weekday name such as 'thursday', an ISO date YYYY-MM-DD, or 'next_available' for the soonest openings. " +
       'Call this before offering any time to the caller.',
     params: { when: { type: 'string', description: "'today', 'tomorrow', a weekday in English, a YYYY-MM-DD date, or 'next_available'." } },
-    timeoutSecs: 8, preSpeech: 'auto'
+    timeoutSecs: 8, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.book,
@@ -73,7 +73,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       time: { type: 'string', description: 'Appointment start time as HH:MM in 24-hour format, taken from list_slots, e.g. 10:30.' },
       language
     },
-    timeoutSecs: 10, preSpeech: 'auto'
+    timeoutSecs: 10, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.reschedule,
@@ -86,7 +86,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       time: { type: 'string', description: 'New start time, HH:MM 24-hour.' },
       language
     },
-    timeoutSecs: 10, preSpeech: 'auto'
+    timeoutSecs: 10, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.cancel,
@@ -95,7 +95,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       ref: { type: 'string', description: 'The booking reference, e.g. HALA-1001. Digits alone are fine.' },
       language
     },
-    timeoutSecs: 10, preSpeech: 'auto'
+    timeoutSecs: 10, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.checkBooking,
@@ -117,7 +117,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       urgency: { type: 'string', enum: ['emergency', 'routine'], optional: true, description: 'For maintenance: emergency or routine. Ask the caller. Omit for complaints.' },
       language
     },
-    timeoutSecs: 10, preSpeech: 'auto'
+    timeoutSecs: 10, preSpeech: 'force'
   },
   {
     name: TOOL_NAMES.lookupFact,
