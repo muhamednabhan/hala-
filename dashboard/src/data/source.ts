@@ -1,4 +1,4 @@
-import type { Booking, CallDetail, ConversationRow, Db, FeedItem, Filters, Insight, Kpis, RequestStatus } from './types';
+import type { Booking, CallDetail, ConversationRow, Db, FeedItem, Filters, HealthItem, Insight, Kpis, RequestStatus } from './types';
 
 export interface RequestPatch {
   status?: RequestStatus;
@@ -19,6 +19,8 @@ export interface GapAnswer {
  */
 export interface DataSource {
   readonly mode: 'mock' | 'live';
+  /** Live mode: which data feeds are connected (shown in the header). */
+  getHealth?(): Promise<HealthItem[]>;
 
   getKpis(filters: Filters): Promise<Kpis>;
   getLiveFeed(filters: Filters, limit?: number): Promise<FeedItem[]>;

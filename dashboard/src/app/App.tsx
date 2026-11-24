@@ -3,7 +3,7 @@ import type { DataSource } from '../data/source';
 import { Emblem } from '../ui/Badges';
 import { PAGES, type PageId } from '../widgets/registry';
 import { CallDrawer } from './CallDrawer';
-import { DataProvider } from './DataContext';
+import { DataProvider, useQuery } from './DataContext';
 import { FilterBar } from './FilterBar';
 import { PageView } from './PageView';
 
@@ -21,6 +21,22 @@ function Clock() {
       <div className="text-[11px] text-stone-500">
         {now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
       </div>
+    </div>
+  );
+}
+
+/** Live mode: which feeds are connected. Hover for details. */
+function Health() {
+  const { data } = useQuery(async (s) => (s.getHealth ? s.getHealth() : []));
+  if (!data?.length) return null;
+  return (
+    <div className="flex items-center gap-3">
+      {data.map((h) => (
+        <span key={h.label} title={h.detail} className="flex items-center gap-1.5 text-xs text-stone-600">
+          <span className={`h-2 w-2 rounded-full ${h.ok ? 'bg-emerald-500' : 'bg-red-500'}`} />
+          {h.label}
+        </span>
+      ))}
     </div>
   );
 }
@@ -48,6 +64,7 @@ export function App({ source }: { source: DataSource }) {
             </div>
           </div>
           <div className="flex items-center gap-5">
+            <Health />
             <span
               className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wider ring-1 ${
                 source.mode === 'mock'

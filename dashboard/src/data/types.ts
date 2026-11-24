@@ -50,6 +50,14 @@ export interface Call {
   sentiment: string | null;
   summary: string | null;
   transcript: TranscriptTurn[] | null;
+  /** ElevenLabs post-call analysis (live mode): evaluation criteria + data collection. */
+  analysis?: CallAnalysis | null;
+}
+
+export interface CallAnalysis {
+  evaluation: { id: string; name: string; result: 'success' | 'failure' | 'unknown'; rationale?: string }[];
+  data: Record<string, string>;
+  title?: string | null;
 }
 
 export interface CallEvent {
@@ -222,4 +230,11 @@ export interface ConversationRow {
   statuses: RequestStatus[];
   rating: number | null;
   snippet: string;
+}
+
+/** One line of the connection status shown in the header (live mode). */
+export interface HealthItem {
+  label: string;
+  ok: boolean;
+  detail: string;
 }

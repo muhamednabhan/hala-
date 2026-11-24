@@ -85,6 +85,37 @@ export function CallDrawer({ callId, onClose }: { callId: string; onClose: () =>
                 </ul>
               </section>
 
+              {detail.call.analysis && detail.call.analysis.evaluation.length > 0 && (
+                <section>
+                  <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                    ElevenLabs evaluation
+                  </h3>
+                  <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                    {detail.call.analysis.evaluation.map((e) => (
+                      <li key={e.id} title={e.rationale} className="flex items-center gap-2 rounded-md border border-stone-200 px-2.5 py-1.5 text-sm">
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                            e.result === 'success' ? 'bg-emerald-50 text-emerald-700' : e.result === 'failure' ? 'bg-red-50 text-red-700' : 'bg-stone-100 text-stone-500'
+                          }`}
+                        >
+                          {e.result === 'success' ? '✓' : e.result === 'failure' ? '✗' : '?'}
+                        </span>
+                        <span className="text-stone-700">{e.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {Object.keys(detail.call.analysis.data).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-stone-500">
+                      {Object.entries(detail.call.analysis.data).map(([k, v]) => (
+                        <span key={k} className="rounded bg-stone-100 px-2 py-0.5">
+                          {k.replace(/_/g, ' ')}: <b className="text-ink">{v || '—'}</b>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
               <section>
                 <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
                   Transcript (ElevenLabs)

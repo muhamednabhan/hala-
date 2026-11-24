@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useData, useQuery } from '../app/DataContext';
-import { serviceLabel } from '../data/services';
+import { HANDOVER_REASON_LABEL, serviceLabel } from '../data/services';
 import type { Handover } from '../data/types';
 import { LangBadge } from '../ui/Badges';
 import { Button, Empty, Tabs, useAction } from '../ui/controls';
 import { fmtAge, fmtDateTime } from '../ui/format';
 import type { WidgetDef } from './types';
 
-const REASON: Record<string, { label: string; cls: string }> = {
-  fee_dispute: { label: 'Fee dispute', cls: 'bg-red-50 text-red-700 ring-red-200' },
-  out_of_scope: { label: 'Out of scope', cls: 'bg-stone-100 text-stone-700 ring-stone-200' },
-  caller_request: { label: 'Asked for a person', cls: 'bg-blue-50 text-blue-700 ring-blue-200' },
-  low_confidence: { label: 'Low confidence', cls: 'bg-amber-50 text-amber-800 ring-amber-200' },
+const REASON_CLS: Record<string, string> = {
+  fee_dispute: 'bg-red-50 text-red-700 ring-red-200',
+  emergency: 'bg-red-600 text-white ring-red-600',
+  upset_caller: 'bg-red-50 text-red-700 ring-red-200',
+  legal_question: 'bg-violet-50 text-violet-700 ring-violet-200',
+  out_of_scope: 'bg-stone-100 text-stone-700 ring-stone-200',
+  unknown_answer: 'bg-gold-50 text-gold-800 ring-gold-200',
+  caller_requested: 'bg-blue-50 text-blue-700 ring-blue-200',
 };
 
 function HandoversView() {
@@ -50,7 +53,10 @@ function HandoversView() {
       ) : (
         <ul className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
           {rows.map((h) => {
-            const r = REASON[h.reason] ?? { label: h.reason.replace(/_/g, ' '), cls: 'bg-stone-100 text-stone-700 ring-stone-200' };
+            const r = {
+              label: HANDOVER_REASON_LABEL[h.reason] ?? h.reason.replace(/_/g, ' '),
+              cls: REASON_CLS[h.reason] ?? 'bg-stone-100 text-stone-700 ring-stone-200',
+            };
             const mins = (Date.now() - Date.parse(h.created_at)) / 60000;
             const urgent = h.status === 'waiting' && mins > 10;
             return (

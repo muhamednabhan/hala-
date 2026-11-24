@@ -1,17 +1,13 @@
 import { createMockSource } from './mockSource';
 import type { DataSource } from './source';
-import { createSupabaseSource } from './supabaseSource';
+import { createTeamSource } from './teamSource';
 
-/** Picks the data source from VITE_DATA_MODE. Falls back to mock so the demo never breaks. */
+/**
+ * VITE_DATA_MODE=mock (default): seeded demo data, always works.
+ * VITE_DATA_MODE=live: the team's agent server + ElevenLabs (see README). Keys stay in the dev server.
+ */
 export function createDataSource(): DataSource {
-  const env = import.meta.env;
-  if (env.VITE_DATA_MODE === 'live') {
-    if (env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY) {
-      return createSupabaseSource(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY);
-    }
-    console.warn('[data] VITE_DATA_MODE=live but Supabase env vars are missing — using mock data.');
-  }
-  return createMockSource();
+  return import.meta.env.VITE_DATA_MODE === 'live' ? createTeamSource() : createMockSource();
 }
 
 export type { DataSource } from './source';

@@ -211,7 +211,7 @@ export function addCall({ rng, db }: Ctx, startMs: number, mix: OutcomeMix, now 
         db.handovers.push({
           id: id('ho'),
           call_id: callId,
-          reason: 'caller_request',
+          reason: 'caller_requested',
           service: svc.key,
           status: now - t > 2 * 3600e3 ? rng.pick(['resolved', 'picked_up'] as const) : 'waiting',
           context: `${name} (${contact}) — ${question}`,
