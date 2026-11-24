@@ -3,7 +3,8 @@ import { resolve } from 'node:path'
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js'
 import { createStores } from '@hala/booking'
 import type { Stores } from '@hala/core'
-import { createSupabaseStores, supabaseReady } from '@hala/supabase'
+import { createSupabaseStores, robotTablesReady, supabaseReady } from '@hala/supabase'
+import { createRobotService, type RobotService } from '@hala/robot'
 import { createToolApi, type ToolApi } from '@hala/tools-api'
 import { HALA_ENV_FILE, ensureToolSecret, readHalaEnv, setHalaVar } from '@hala/provisioning'
 
@@ -14,7 +15,7 @@ import { HALA_ENV_FILE, ensureToolSecret, readHalaEnv, setHalaVar } from '@hala/
  * hot-reload resets module state: without this, /api/tools and /api/events would see different
  * bookings. Persisted to .data/hala-store.json so a restart keeps bookings and handovers.
  */
-interface Hala { api: ToolApi; stores: Stores; adminKey: string; storeKind: 'supabase' | 'file'; storeNote?: string }
+interface Hala { api: ToolApi; stores: Stores; robots: RobotService; adminKey: string; storeKind: 'supabase' | 'file'; storeNote?: string; robotsNote?: string }
 const g = globalThis as unknown as { __hala?: Promise<Hala>; __halaEleven?: ElevenLabsClient }
 
 // The whole project must not be traced into the server bundle: the data and env paths are runtime-only.
@@ -57,10 +58,19 @@ async function build(): Promise<Hala> {
   } else {
     storeNote = 'Supabase is not configured'
   }
-  if (storeKind === 'supabase') stores = createSupabaseStores({ url: url!, serviceKey: serviceKey! })
-  else stores = createStores({ file: resolve(/*turbopackIgnore: true*/ repoRoot, '.data', 'hala-store.json') })
+  let robotsNote: string | undefined
+  const local = () => createStores({ file: resolve(/*turbopackIgnore: true*/ repoRoot, '.data', 'hala-store.json') })
+  if (storeKind === 'supabase') {
+    const opts = { url: url!, serviceKey: serviceKey! }
+    stores = createSupabaseStores(opts)
+    if (!(await robotTablesReady(opts))) {
+      // Bookings keep using Supabase; robots fall back to the local file until migration 002 is run.
+      stores = { ...stores, robots: local().robots }
+      robotsNote = 'Robot tables are missing in Supabase: run agent/09-supabase/migrations/002_hala_robots.sql. Robots are kept in a local file until then.'
+    }
+  } else stores = local()
   if (storeNote) console.warn(`hala: using the local file store. ${storeNote}`)
-  return { stores, storeKind, storeNote, api: createToolApi({ stores, secret: ensureToolSecret(process.env, halaFile()) }), adminKey: adminKey() }
+  return { stores, storeKind, storeNote, robotsNote, robots: createRobotService({ robots: stores.robots }), api: createToolApi({ stores, secret: ensureToolSecret(process.env, halaFile()) }), adminKey: adminKey() }
 }
 
 export const hala = (): Promise<Hala> => (g.__hala ??= build())
@@ -74,6 +84,9 @@ export function elevenlabs(): ElevenLabsClient {
 export const hasApiKey = () => Boolean(setting('ELEVENLABS_API_KEY'))
 export const hasToolSecret = () => Boolean(setting('HALA_TOOL_SECRET'))
 export const hasPublicUrl = () => Boolean(setting('PUBLIC_BASE_URL'))
+
+/** Server-side settings lookup for routes that need one (voice id etc.). */
+export const setting_ = setting
 
 export const agentId = (channel: 'web' | 'robot' = 'web') =>
   setting(channel === 'robot' ? 'HALA_AGENT_ID_ROBOT' : 'HALA_AGENT_ID')

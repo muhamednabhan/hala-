@@ -1,4 +1,4 @@
-import type { Booking, Handover, HalaEvent, ServiceRequest } from './types'
+import type { Booking, Handover, HalaEvent, Robot, RobotCommand, RobotLog, ServiceRequest } from './types'
 
 /**
  * Storage ports. The agent only ever talks to these interfaces.
@@ -36,6 +36,24 @@ export interface HandoverRepo {
   list: () => Promise<Handover[]>
 }
 
+/** Robots paired with the website, their remote commands and the bridge's log lines. */
+export interface RobotRepo {
+  create: (r: Robot) => Promise<void>
+  get: (id: string) => Promise<Robot | undefined>
+  getByTokenHash: (hash: string) => Promise<Robot | undefined>
+  list: () => Promise<Robot[]>
+  update: (r: Robot) => Promise<void>
+  delete: (id: string) => Promise<void>
+  addCommand: (c: RobotCommand) => Promise<void>
+  /** Commands not yet picked up, oldest first. */
+  pendingCommands: (robotId: string) => Promise<RobotCommand[]>
+  recentCommands: (robotId: string, limit: number) => Promise<RobotCommand[]>
+  updateCommand: (c: RobotCommand) => Promise<void>
+  addLogs: (logs: RobotLog[]) => Promise<void>
+  /** Newest last. */
+  logs: (robotId: string, limit: number) => Promise<RobotLog[]>
+}
+
 export interface EventSink {
   publish: (e: HalaEvent) => Promise<void> | void
 }
@@ -52,6 +70,7 @@ export interface Stores {
   requests: RequestRepo
   handovers: HandoverRepo
   events: EventBus
+  robots: RobotRepo
 }
 
 export interface Clock {

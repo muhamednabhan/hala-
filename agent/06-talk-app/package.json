@@ -21,7 +21,8 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zod": "^4.6.7",
-    "@hala/supabase": "*"
+    "@hala/supabase": "*",
+    "@hala/robot": "*"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

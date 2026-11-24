@@ -157,3 +157,72 @@ export interface Fact {
   /** Where the fact comes from. Brief, handover and the DSO knowledge base (v1.0) are accepted as verified. */
   source: 'brief' | 'handover' | 'kb' | 'dso-public'
 }
+
+// ---------------------------------------------------------------- robots
+
+export type RobotDesired = 'running' | 'stopped'
+
+/** What the robot-side bridge reports about itself on every sync. All optional: the bridge sends what it knows. */
+export interface RobotState {
+  phase?: 'starting' | 'idle' | 'connecting' | 'conversation' | 'stopping' | 'error'
+  /** ROS 2 + aimdk_msgs loaded (false in simulation mode). */
+  ros?: boolean
+  simulation?: boolean
+  speakerFocus?: boolean
+  /** Which microphone stream is being used (1 built-in, 2 external, 0 none yet). */
+  micStream?: number
+  /** Microphone messages received since the bridge started, and seconds since the last one. */
+  micMessages?: number
+  micAgeSecs?: number | null
+  conversationId?: string
+  agentOutputFormat?: string
+  agentInputFormat?: string
+  lastError?: string
+}
+
+export interface Robot {
+  id: string
+  name: string
+  notes?: string
+  /** For reference only (the robot is never contacted directly by the website). */
+  ip?: string
+  /** ROS_DOMAIN_ID to export before starting the bridge, if the robot uses one. */
+  domainId?: number
+  /** Where the AimDK workspace is, so the setup command can source it. */
+  aimdkPath?: string
+  /** 0 = whichever stream speaks first, 1 = built-in microphone, 2 = external. */
+  micStream: 0 | 1 | 2
+  /** Mute the microphone while the robot speaks (use if it hears itself). */
+  halfDuplex: boolean
+  /** Speaker volume 0-100, applied when the bridge connects. */
+  volume?: number
+  /** SHA-256 of the pairing token. The token itself is shown once and never stored. */
+  tokenHash: string
+  desired: RobotDesired
+  lastSeen?: string
+  bridgeVersion?: string
+  state?: RobotState
+  createdAt: string
+}
+
+export type RobotCommandType = 'speaker_test' | 'say' | 'set_volume' | 'reconnect'
+
+export interface RobotCommand {
+  id: string
+  robotId: string
+  type: RobotCommandType
+  payload: Record<string, unknown>
+  status: 'pending' | 'done' | 'failed'
+  result?: string
+  createdAt: string
+  doneAt?: string
+}
+
+export interface RobotLog {
+  id: string
+  robotId: string
+  ts: string
+  /** user and agent are transcript lines from the conversation; the rest are bridge messages. */
+  level: 'info' | 'warn' | 'error' | 'user' | 'agent'
+  message: string
+}
