@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-cloud text-ink antialiased;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+}
+
+[dir='rtl'],
+:lang(ar) {
+  font-family: 'Noto Sans Arabic', 'Oxygen', Arial, sans-serif;
+}
+
+@keyframes feed-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+    background-color: #EBF1F9;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.feed-in {
+  animation: feed-in 0.7s ease-out;
+}
+
+/* Thin, quiet scrollbars */
+.scroll-quiet::-webkit-scrollbar {
+  width: 6px;
+}
+.scroll-quiet::-webkit-scrollbar-thumb {
+  background: #C5CDD8;
+  border-radius: 3px;
+}

@@ -1,0 +1,8 @@
+# Never upload local secrets or build output; Vercel gets settings from its own Environment Variables.
+.env
+.env.*
+!.env.example
+node_modules
+dist
+.vercel
+*.test.ts
