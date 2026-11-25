@@ -18,6 +18,39 @@ function describe(e: unknown): string {
   return msg
 }
 
+const ADMIN_KEY = 'hala-admin-key' // the Robot tab keeps the access key here once unlocked
+
+/**
+ * The conversation the robot is in right now, so this screen can show what the robot is doing (the Smart Pass, the phone QR)
+ * even though the visitor is talking to the robot and not to this page. Needs the access key from the Robot tab; without it
+ * this stays undefined and the page only follows its own conversation. `/?robot=<id>` pins it to one robot.
+ */
+function useRobotConversation(enabled: boolean): string | undefined {
+  const [id, setId] = useState<string>()
+  useEffect(() => {
+    if (!enabled) { setId(undefined); return }
+    let stop = false
+    const tick = async () => {
+      let key = ''
+      try { key = sessionStorage.getItem(ADMIN_KEY) ?? '' } catch { /* private mode */ }
+      if (!key) { if (!stop) setId(undefined); return }
+      try {
+        const res = await fetch('/api/robots', { headers: { 'x-hala-admin-key': key }, cache: 'no-store' })
+        if (!res.ok) return
+        const { robots } = (await res.json()) as { robots: { id: string; state?: { phase?: string; conversationId?: string } }[] }
+        // /?robot=<id> pins the screen to one robot (when more than one is paired); otherwise the first one in a conversation.
+        const only = new URLSearchParams(window.location.search).get('robot')
+        const live = robots.find((r) => (!only || r.id === only) && r.state?.phase === 'conversation' && r.state.conversationId)
+        if (!stop) setId(live?.state?.conversationId)
+      } catch { /* the next tick tries again */ }
+    }
+    void tick()
+    const timer = setInterval(tick, 2500)
+    return () => { stop = true; clearInterval(timer) }
+  }, [enabled])
+  return id
+}
+
 /**
  * Everything the talk page needs from one conversation:
  * the voice session (ElevenLabs React SDK), the transcript, and the live feed of what HALA did
@@ -47,14 +80,19 @@ export function useHala() {
   const status = conversation.status
   const live = status === 'connected'
 
+  // This page's own conversation wins; otherwise follow the robot's, so the screen works as the robot's screen.
+  const robotConversationId = useRobotConversation(!conversationId)
+  const feedId = conversationId ?? robotConversationId
+
   // Poll our own event feed once we know the conversation id. Polling (not a stream) so it also works on serverless hosting.
   useEffect(() => {
-    if (!conversationId) return
+    if (!feedId) { setEvents([]); return }
+    setEvents([]) // a different conversation (the robot's next visitor): start from a clean screen
     let stop = false
     let after = ''
     const tick = async () => {
       try {
-        const res = await fetch(`/api/events?poll=1&conversation_id=${encodeURIComponent(conversationId)}&after=${encodeURIComponent(after)}`, { cache: 'no-store' })
+        const res = await fetch(`/api/events?poll=1&conversation_id=${encodeURIComponent(feedId)}&after=${encodeURIComponent(after)}`, { cache: 'no-store' })
         if (!res.ok) return
         const fresh = (await res.json()) as HalaEvent[]
         if (stop || fresh.length === 0) return
@@ -65,7 +103,7 @@ export function useHala() {
     void tick()
     const timer = setInterval(tick, 1500)
     return () => { stop = true; clearInterval(timer) }
-  }, [conversationId])
+  }, [feedId])
 
   const start = useCallback(async (pref: LanguagePref) => {
     setError(undefined); setToolProblem(false); setStarting(true)
@@ -94,7 +132,7 @@ export function useHala() {
   return {
     status, live, starting, mode: conversation.mode, isMuted: conversation.isMuted, setMuted: conversation.setMuted,
     getOutputVolume: conversation.getOutputVolume, getInputVolume: conversation.getInputVolume,
-    lines, events, error, toolProblem, conversationId,
+    lines, events, error, toolProblem, conversationId, feedId, followingRobot: !conversationId && Boolean(robotConversationId),
     start, stop: conversation.endSession
   }
 }

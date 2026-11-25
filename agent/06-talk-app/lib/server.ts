@@ -79,7 +79,19 @@ async function build(): Promise<Hala> {
   } else stores = local()
   if (storeNote) console.warn(`hala: using the local file store. ${storeNote}`)
   const secret = ensureToolSecret(process.env, halaFile())
-  return { stores, storeKind, storeNote, robotsNote, robots: createRobotService({ robots: stores.robots }), api: createToolApi({ stores, deferEvents: true, secret }), adminKey: adminKey(), secret }
+  const api = createToolApi({
+    stores, deferEvents: true, secret,
+    // The Smart Pass QR must open on a phone, so it points at the public tunnel, read at request time because the URL changes.
+    passBaseUrl: () => setting('PUBLIC_BASE_URL'),
+    // A booking or logged request is texted to the caller's linked phone (loaded lazily: the phone module builds on top of this one).
+    onFulfilled: async (f, conversationId) => (await import('@/lib/phone')).deliverPass(f, conversationId)
+  })
+  // Build the phone side now, in the background, so the first booking does not pay for it. Same for the score timer.
+  queueMicrotask(() => {
+    void import('@/lib/phone').then((m) => m.phone()).catch(() => undefined)
+    void import('@/lib/scoring').then((m) => m.startScoringTimer()).catch(() => undefined)
+  })
+  return { stores, storeKind, storeNote, robotsNote, robots: createRobotService({ robots: stores.robots }), api, adminKey: adminKey(), secret }
 }
 
 export const hala = (): Promise<Hala> => (g.__hala ??= build())

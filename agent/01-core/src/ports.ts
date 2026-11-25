@@ -68,6 +68,11 @@ export interface EventSink {
 export interface EventBus extends EventSink {
   /** Events so far, optionally for one conversation, oldest first. */
   history: (conversationId?: string) => Promise<HalaEvent[]>
+  /**
+   * Put a conversation's sentiment scores on the rows that exist for it (only rows that have no score yet).
+   * Optional: stores without the columns simply do not offer it.
+   */
+  annotate?: (conversationId: string, scores: { averageSentiment: number; averageFrustration: number }) => Promise<void>
   /** Live subscription. Returns an unsubscribe function. */
   subscribe: (listener: (e: HalaEvent) => void, conversationId?: string) => () => void
 }

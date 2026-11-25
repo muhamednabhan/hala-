@@ -3,6 +3,7 @@ import { BILINGUAL_GREETING, DEMO_NOTICE, FIRST_MESSAGE, HANDOVER_REASONS } from
 import { SERVICES } from '@hala/catalogue'
 import { buildAgentConfig } from '@hala/provisioning'
 import { TOOL_SPECS } from '@hala/tools-api'
+import { LINK_TOOL_SPECS } from '@hala/phone'
 import { createHarness } from '../src/harness'
 
 /**
@@ -19,7 +20,12 @@ const AI_AR = /ذكاء اصطناعي|الذكاء الاصطناعي/
 // The prompt now carries the service sheet (documents, DEMO fee and time per service) so the agent can answer the commonest
 // questions with NO tool call, which is the biggest single latency saving. That costs prompt length; the budget catches
 // runaway growth, since a longer prompt makes every turn a little slower.
-const PROMPT_BUDGET = 14_500
+// 14_500 -> 16_500 for four behaviours that each need a few lines every turn: who deserves a person (triage), the QR phone link,
+// the Smart Pass wording, and mirroring Gulf dialect.
+// 16_500 -> 17_900 for "talk first, book later" (about 1.4k characters, about 350 tokens): the agent must hold a conversation and
+// only offer an appointment once, and that has to be decided on every turn, so it cannot sit in a procedure (a procedure adds a
+// step to the commonest turn). The lean web and robot prompts are far under this cap. Do not raise it again.
+const PROMPT_BUDGET = 17_900
 
 describe('AI disclosure in every first message', () => {
   it('bilingual opener (the agent default) says AI in English and Arabic', () => {
@@ -94,7 +100,7 @@ describe('system prompt rules', () => {
 })
 
 describe('prompt <-> tools consistency', () => {
-  const toolNames = new Set(TOOL_SPECS.map((s) => s.name))
+  const toolNames = new Set([...TOOL_SPECS, ...LINK_TOOL_SPECS].map((s) => s.name))
 
   it('every tool the prompt tells the agent to call exists', () => {
     const referenced = [...prompt.matchAll(/\b(?:call|use|Call|Use) ([a-z]+_[a-z_]+)/g)].map((m) => m[1]!)
@@ -112,7 +118,8 @@ describe('prompt <-> tools consistency', () => {
     const tools = (agent.prompt.tools as { name: string }[]).map((t) => t.name).sort()
     expect(tools).toEqual([...toolNames].sort())
     const h = createHarness()
-    for (const name of toolNames) expect((await h.api.handle(name, h.headers, {})).status, name).not.toBe(404)
+    // the QR link tools are served by the phone module, the rest by the tool API
+    for (const name of TOOL_SPECS.map((s) => s.name)) expect((await h.api.handle(name, h.headers, {})).status, name).not.toBe(404)
   })
   it('the handover reasons the tool accepts match the prompt', () => {
     const spec = TOOL_SPECS.find((s) => s.name === 'handover_to_human')!

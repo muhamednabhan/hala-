@@ -1,5 +1,6 @@
 import { after } from 'next/server'
 import { maybeSync } from '@/lib/live-knowledge'
+import { maybeScore } from '@/lib/scoring'
 import { elevenlabs } from '@/lib/eleven'
 import { agentId, hasApiKey, json, setting } from '@/lib/server'
 import { clientKey, createRateLimiter } from '@/lib/rate-limit'
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
     // The booking procedure starts with the conversation, so the first booking request needs no extra model step.
     const start = (channel === 'robot' ? setting('HALA_PROC_START_ROBOT') : setting('HALA_PROC_START_WEB')) ?? ''
     // A conversation is starting: refresh the staff answers in the background (at most every 15 minutes).
-    after(() => maybeSync())
+    after(() => { void maybeSync(); void maybeScore() })
     return json({ token, agentId: id, startProcedureIds: start ? start.split(',') : [] })
   } catch (e) {
     console.error('token error', (e as Error).message)

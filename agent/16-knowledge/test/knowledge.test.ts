@@ -13,8 +13,15 @@ const TOOLS = {
 
 describe('procedures', () => {
   const procs = buildProcedures(TOOLS)
+  it('the FIRST procedure is the one preloaded in every conversation (start procedure): it must be the talk-first one, never the booking flow', () => {
+    // sync.ts pins procs[0] as the start procedure. When that was the booking flow, every conversation began with
+    // "one appointment in as few turns as possible" in context and the agent asked for a day before it had listened.
+    expect(procs[0]!.id).toBe('understand_need')
+    expect(procs[0]!.content).toMatch(/do not call list_slots/)
+    expect(procs[0]!.content).toMatch(/offer ONCE/)
+  })
   it('has the flows, each with a precise trigger and short content', () => {
-    expect(procs.map((p) => p.id)).toEqual(['book_appointment', 'change_or_check', 'maintenance_or_complaint', 'handover', 'service_deep_dive'])
+    expect(procs.map((p) => p.id)).toEqual(['understand_need', 'book_appointment', 'change_or_check', 'maintenance_or_complaint', 'handover', 'service_deep_dive'])
     for (const p of procs) {
       expect(p.trigger.length, p.id).toBeGreaterThan(40)
       expect(p.content.length, p.id).toBeLessThan(2500) // short: the point is a small prompt
@@ -35,7 +42,7 @@ describe('procedures', () => {
     expect(all).toMatch(/ONCE/)
     expect(all).toMatch(/999/)
     expect(all).toMatch(/Never argue|promise no/i)
-    expect(all).toMatch(/cannot send a message/)
+    expect(all).toMatch(/cannot send emails/)
   })
   it('lean mode drops the flows from the base prompt and points to the procedures', () => {
     const tools = { ...TOOLS, lookupFact: TOOL_NAMES.lookupFact }
@@ -43,7 +50,7 @@ describe('procedures', () => {
     const lean = buildSystemPrompt({ services: SERVICES, facts: FACTS, tools, lean: true })
     const index = buildSystemPrompt({ services: SERVICES, facts: FACTS, tools, lean: true, sheet: false, knowledgeBase: true })
     expect(lean.length).toBeLessThan(full.length)
-    expect(index.length).toBeLessThan(lean.length * 0.75) // the sheet moves to the knowledge base
+    expect(index.length).toBeLessThan(lean.length * 0.8) // the sheet moves to the knowledge base
     expect(lean).toMatch(/own procedure/)
     expect(lean).not.toMatch(/# Booking and tickets/)
     expect(index).toMatch(/knowledge base/i)

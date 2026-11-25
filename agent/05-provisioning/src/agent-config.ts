@@ -3,7 +3,7 @@ import { BILINGUAL_GREETING, FIRST_MESSAGE, buildSystemPrompt, type Service } fr
 import { FACTS, SERVICES } from '@hala/catalogue'
 import { TOOL_NAMES, TOOL_SPECS, type ToolSpec } from '@hala/tools-api'
 import {
-  HUMAN_LLM, HUMAN_VOICE_PROMPT, PHONE_DYNAMIC_DEFAULTS, PHONE_GREETING, PHONE_PROMPT_ADDENDUM, PHONE_TOOL_NAMES, PHONE_TOOL_SPECS,
+  HUMAN_LLM, HUMAN_VOICE_PROMPT, LINK_TOOL_NAMES, LINK_TOOL_SPECS, PHONE_DYNAMIC_DEFAULTS, PHONE_GREETING, PHONE_PROMPT_ADDENDUM, PHONE_TOOL_NAMES, PHONE_TOOL_SPECS,
   humanTts, humanTurn
 } from '@hala/phone'
 
@@ -49,7 +49,7 @@ export interface AgentConfigOptions {
   knowledge?: { id: string; name: string }[]
   /** Pronunciation dictionary to apply to everything the agent says. */
   pronunciation?: { pronunciationDictionaryId: string; versionId?: string }
-  /** 'v3' = expressive (audio tags, richer voice). 'flash' = fastest. */
+  /** 'v3' = expressive (audio tags, richer voice; the default, v4 turbo on the robot). 'flash' = fastest, no tags. */
   voiceModel?: 'v3' | 'flash'
   /** Thinking effort for reasoning models. Lower is faster. Leave unset to use the model's default. */
   reasoningEffort?: ElevenLabs.LlmReasoningEffort
@@ -68,14 +68,29 @@ export const BASE_LANGUAGE = 'ar'
 export const V3_MODEL: ElevenLabs.TtsConversationalModel = 'eleven_v3_conversational'
 /** A few tags only. Too many make a receptionist sound like an actor. The agent is told to use at most one per reply. */
 export const AUDIO_TAGS: { tag: string; description: string }[] = [
-  { tag: '[warmly]', description: 'a warm, welcoming greeting or thanks' },
+  { tag: '[warmly]', description: 'a warm, welcoming greeting, Emirati hospitality, or thanks' },
   { tag: '[reassuring]', description: 'calming an upset or worried caller' },
   { tag: '[cheerfully]', description: 'good news, a confirmed booking' },
   { tag: '[thoughtful]', description: 'checking something or considering a question' },
   { tag: '[apologetic]', description: 'a mistake, a delay, or something that cannot be done' },
-  { tag: '[softly]', description: 'sensitive moments' }
+  { tag: '[softly]', description: 'sensitive moments' },
+  { tag: '[chuckles]', description: 'a light, friendly laugh when the caller jokes, before steering back to what you can help with' }
 ]
 export const TTS_MODEL: ElevenLabs.TtsConversationalModel = 'eleven_flash_v2_5'
+/**
+ * The robot's voice, as chosen by hand in the ElevenLabs dashboard on 24 Nov (about 23:45) and now kept in code so that
+ * `agent:sync` does not overwrite it: the v4 turbo model with expressive mode and these suggested tags.
+ */
+export const ROBOT_TTS_MODEL: ElevenLabs.TtsConversationalModel = 'eleven_v4_turbo'
+export const ROBOT_AUDIO_TAGS: { tag: string; description: string }[] = [
+  { tag: '[empathetically]', description: 'a caller who is worried, stuck or frustrated' },
+  { tag: '[warmly]', description: 'a warm welcome, Emirati hospitality, or thanks' },
+  { tag: '[laughing]', description: 'only when the caller clearly laughs first' },
+  { tag: '[chuckles]', description: 'a light, friendly laugh when the caller jokes, before steering back to what you can help with' },
+  { tag: '[enthusiastically]', description: 'good news, such as a confirmed booking' },
+  { tag: '[excitedly]', description: 'a short burst of energy when something goes well' },
+  { tag: '[sighs]', description: 'a soft sigh of sympathy for a hassle, never at the caller' }
+]
 
 export const agentName = (channel: Channel = 'web') =>
   channel === 'robot' ? 'HALA Concierge (robot)' : channel === 'phone' ? 'HALA Concierge (phone)' : 'HALA Concierge'
@@ -120,7 +135,9 @@ const EVALUATION_CRITERIA: ElevenLabs.PromptEvaluationCriteria[] = [
   { id: 'no_invention', name: 'No invented facts', conversationGoalPrompt: 'Every fee, time, document, hour or rule the agent stated came from a tool result. When it did not know, it said so and offered a person. It never guessed.' },
   { id: 'demo_labelled', name: 'Demo values labelled', conversationGoalPrompt: 'Whenever the agent stated a fee or processing time it said that it is a demonstration value. Pass automatically if no fee or time was stated.' },
   { id: 'language_followed', name: 'Follows the caller language', conversationGoalPrompt: "The agent answered in the language of the caller's latest message, in Arabic or English, including after the caller switched language." },
-  { id: 'handover_correct', name: 'Hands over when it should', conversationGoalPrompt: 'If the caller disputed a fee, was upset, asked for a person, asked for legal advice or asked for something out of scope, the agent called handover_to_human calmly. Pass automatically if no such situation occurred.' },
+  { id: 'handover_correct', name: 'Hands over when it should', conversationGoalPrompt: 'If the caller disputed a fee, was genuinely upset about a real problem, asked for a person, asked for legal advice, reported an emergency, or had a real DSO matter the agent could not answer or do, the agent called handover_to_human calmly. A joke, a test, nonsense or an impossible request must NOT have been handed over. Pass automatically if no such situation occurred.' },
+  { id: 'no_wasted_handover', name: 'Does not waste staff time', conversationGoalPrompt: 'The agent did NOT call handover_to_human for jokes, riddles, tests, trolling, flirting, trivia, off-topic chat or impossible requests (for example flights to Mars or a free car). It declined those itself, lightly, and said what it can help with. Pass automatically if no such request was made.' },
+  { id: 'dialect_mirrored', name: 'Mirrors Gulf dialect warmly', conversationGoalPrompt: 'If the caller spoke Gulf or Emirati Arabic dialect, the agent answered in warm Gulf Arabic with a short hospitable phrase before getting to the task, without promising anything a tool had not done. If the caller spoke formal Arabic or English, pass automatically.' },
   { id: 'booking_confirmed', name: 'Reads back before booking', conversationGoalPrompt: 'Before booking, rescheduling or cancelling, the agent read the details back and waited for a yes, then confirmed the reference number afterwards. Pass automatically if no booking change occurred.' }
 ]
 
@@ -131,6 +148,8 @@ export function buildAgentConfig(o: AgentConfigOptions) {
   const phone = channel === 'phone'
   const human = o.humanVoice ?? phone
   const expressive = (o.voiceModel ?? 'v3') === 'v3'
+  // The phone agent already has the caller's number (dynamic variables), so only the web and robot agents get the QR link tools.
+  const linkTools = !phone
 
   const basePrompt = buildSystemPrompt({
     services,
@@ -139,17 +158,19 @@ export function buildAgentConfig(o: AgentConfigOptions) {
       findService: TOOL_NAMES.findService, listSlots: TOOL_NAMES.listSlots, book: TOOL_NAMES.book,
       reschedule: TOOL_NAMES.reschedule, cancel: TOOL_NAMES.cancel, logRequest: TOOL_NAMES.logRequest,
       lookupFact: TOOL_NAMES.lookupFact, handover: TOOL_NAMES.handover,
-      checkBooking: TOOL_NAMES.checkBooking, checkRequest: TOOL_NAMES.checkRequest, serviceProcess: TOOL_NAMES.serviceProcess
+      checkBooking: TOOL_NAMES.checkBooking, checkRequest: TOOL_NAMES.checkRequest, serviceProcess: TOOL_NAMES.serviceProcess,
+      ...(linkTools ? { requestPhoneLink: LINK_TOOL_NAMES.requestLink, getLinkedPhone: LINK_TOOL_NAMES.getLinked } : {})
     },
     lean: o.lean,
     sheet: o.sheet,
+    expressive,
     knowledgeBase: Boolean(o.knowledge?.length)
   })
 
   const prompt = `${basePrompt}${phone ? `
 ${PHONE_PROMPT_ADDENDUM}` : ''}${human ? `
 ${HUMAN_VOICE_PROMPT}` : ''}`
-  const extraTools = phone ? PHONE_TOOL_SPECS : o.contactTool ? PHONE_TOOL_SPECS.filter((t) => t.name === PHONE_TOOL_NAMES.lookupContact) : []
+  const extraTools = phone ? PHONE_TOOL_SPECS : [...LINK_TOOL_SPECS, ...(o.contactTool ? PHONE_TOOL_SPECS.filter((t) => t.name === PHONE_TOOL_NAMES.lookupContact) : [])]
 
   const conversationConfig = {
     agent: {
@@ -179,12 +200,13 @@ ${HUMAN_VOICE_PROMPT}` : ''}`
       }
     },
     tts: {
-      modelId: o.ttsModel ?? (expressive ? V3_MODEL : TTS_MODEL),
+      modelId: o.ttsModel ?? (expressive ? (robot ? ROBOT_TTS_MODEL : V3_MODEL) : TTS_MODEL),
       voiceId: o.voiceId ?? DEFAULT_VOICE_ID,
-      stability: 0.55, similarityBoost: 0.8, speed: 1,
+      // the robot's v4 turbo voice runs at the 0.75 the dashboard set (it does not use the higher value)
+      stability: 0.55, similarityBoost: robot && expressive ? 0.75 : 0.8, speed: 1,
       // Looser than the default: more movement in the voice, less read-aloud.
       ...(human ? humanTts : {}),
-      ...(expressive ? { expressiveMode: true, suggestedAudioTags: AUDIO_TAGS } : {}),
+      ...(expressive ? { expressiveMode: true, suggestedAudioTags: robot ? ROBOT_AUDIO_TAGS : AUDIO_TAGS } : {}),
       ...(o.pronunciation ? { pronunciationDictionaryLocators: [o.pronunciation] } : {}),
       ...(robot ? { agentOutputAudioFormat: 'pcm_16000' as const } : {})
     },

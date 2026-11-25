@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useHala, type LanguagePref } from '@/lib/use-hala'
 import { EventCard } from './EventCard'
 import { Link } from './Brand'
-import { PhoneLink } from './PhoneLink'
+import { PhoneRequest, SmartPass } from './SmartPass'
+import { deriveKiosk, passQrSrc } from '@/lib/kiosk'
 
 const LANGS: { id: LanguagePref; label: string; hint: string }[] = [
   { id: 'auto', label: 'Auto', hint: 'Greets in both languages and follows you' },
@@ -41,9 +42,18 @@ function Panel() {
   useEffect(() => { if (tab === 'activity') setSeen(hala.events.length) }, [tab, hala.events.length])
 
   const connecting = hala.starting || hala.status === 'connecting'
-  const headline = hala.live ? (hala.mode === 'speaking' ? 'HALA is speaking' : 'Listening') : connecting ? 'Connecting' : 'Ready when you are'
-  const headlineAr = hala.live ? (hala.mode === 'speaking' ? 'هلا تتحدث' : 'أستمع إليك') : connecting ? 'جارٍ الاتصال' : 'جاهزة عندما تكون جاهزاً'
+  const idle = hala.followingRobot ? 'Helping a visitor' : 'Ready when you are'
+  const idleAr = hala.followingRobot ? 'تساعد زائراً' : 'جاهزة عندما تكون جاهزاً'
+  const headline = hala.live ? (hala.mode === 'speaking' ? 'HALA is speaking' : 'Listening') : connecting ? 'Connecting' : idle
+  const headlineAr = hala.live ? (hala.mode === 'speaking' ? 'هلا تتحدث' : 'أستمع إليك') : connecting ? 'جارٍ الاتصال' : idleAr
   const unseen = tab === 'activity' ? 0 : hala.events.length - seen
+
+  // The screen next to the robot: the Smart Pass after a booking or request, the phone QR while the agent needs a number.
+  const kiosk = deriveKiosk(hala.events)
+  const [closed, setClosed] = useState<string>()
+  const pass = kiosk.pass && closed !== `${kiosk.pass.pass.ref}|${kiosk.pass.pass.time ?? ''}` ? kiosk.pass : undefined
+  const needsPhone = Boolean(kiosk.linkRequest) && !pass
+  useEffect(() => { if (!hala.feedId) setClosed(undefined) }, [hala.feedId])
   // Where the conversation is, read from what actually happened (not guessed from the voice).
   const types = new Set(hala.events.map((e) => e.type))
   const progress = !hala.live ? -1
@@ -53,7 +63,7 @@ function Panel() {
 
   return (
     <div className="talk">
-      <section className="card stage dark" aria-label="Voice conversation">
+      <section className={`card stage dark${pass ? ' has-pass' : ''}${needsPhone ? ' has-phreq' : ''}`} aria-label="Voice conversation">
         <Orb live={hala.live} mode={hala.mode} level={hala.getOutputVolume} />
         <div className="state" aria-live="polite">
           <p className="state-main">{headline}</p>
@@ -93,8 +103,15 @@ function Panel() {
             One step could not reach our server. Check the connection and that the agent was synced.
           </p>
         )}
-        <p className="hint">Say “Hello” or «مرحبا». Switch language whenever you like.</p>
-        <PhoneLink />
+        <p className="hint">{hala.followingRobot ? 'Showing the robot’s conversation. تعرض محادثة الروبوت.' : 'Say “Hello” or «مرحبا». Switch language whenever you like.'}</p>
+        {pass && (
+          <SmartPass
+            key={`${pass.pass.ref}|${pass.pass.time ?? ''}`}
+            pass={pass.pass} qr={passQrSrc(pass.pass.ref, pass.url)} sent={pass.sent}
+            onClose={() => setClosed(`${pass.pass.ref}|${pass.pass.time ?? ''}`)}
+          />
+        )}
+        {needsPhone && kiosk.linkRequest && <PhoneRequest qr={kiosk.linkRequest.qr} code={kiosk.linkRequest.code} linked={kiosk.linked?.phone} />}
       </section>
 
       <section className="card feed" aria-label="Conversation and activity">

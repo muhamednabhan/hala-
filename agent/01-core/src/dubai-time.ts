@@ -47,6 +47,10 @@ export function addDays(date: string, days: number): string {
 
 export const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const
 
+const WEEKDAY_ABBREVIATIONS: Record<string, string> = {
+  mon: 'monday', tue: 'tuesday', tues: 'tuesday', wed: 'wednesday', thu: 'thursday', thur: 'thursday', thurs: 'thursday', fri: 'friday', sat: 'saturday', sun: 'sunday'
+}
+
 export interface ResolvedDate {
   date: string
   /** How the input was understood, for logging. */
@@ -58,17 +62,24 @@ export interface ResolvedDate {
  * The agent never does date arithmetic itself; the server owns the calendar.
  */
 export function resolveWhen(input: string, now: Date): ResolvedDate | undefined {
-  const raw = input.trim().toLowerCase()
+  // A language model sends "Thursday." or "tomorrow morning" as readily as "thursday": none of that may end in "could not understand".
+  const raw = input.trim().toLowerCase().replace(/[\s.,!?;:]+$/, '').replace(/\s+/g, ' ')
   const today = dubaiParts(now).date
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return dubaiInstant(raw, '12:00') ? { date: raw, how: 'iso' } : undefined
-  if (raw === 'today') return { date: today, how: 'today' }
-  if (raw === 'tomorrow') return { date: addDays(today, 1), how: 'tomorrow' }
-  const name = raw.replace(/^(next|this|on)\s+/, '')
+  // A date, optionally followed by a time of day: "2026-11-26", "2026-11-26T10:00", "2026-11-26 10:00".
+  const iso = /^(\d{4}-\d{2}-\d{2})(?:[t ]\d{1,2}:\d{2}.*)?$/.exec(raw)
+  if (iso) return dubaiInstant(iso[1]!, '12:00') ? { date: iso[1]!, how: 'iso' } : undefined
+  // The part of the day after the day word is not a different day: "tomorrow morning", "thursday afternoon", "monday at 10".
+  // (A different DATE after a weekday, "thursday 3 december", is NOT guessed at: it stays unresolved and the agent asks.)
+  const day = raw.replace(/\s+(?:in the |at |around )?(?:morning|afternoon|evening|noon)$/, '').replace(/\s+at \d.*$/, '')
+  if (day === 'today') return { date: today, how: 'today' }
+  if (day === 'tomorrow') return { date: addDays(today, 1), how: 'tomorrow' }
+  const word = day.replace(/^(next|this|on)\s+/, '')
+  const name = WEEKDAY_ABBREVIATIONS[word] ?? word
   const idx = WEEKDAY_NAMES.indexOf(name as (typeof WEEKDAY_NAMES)[number])
   if (idx < 0) return undefined
   const todayDow = dubaiParts(now).weekday
   let delta = (idx - todayDow + 7) % 7
-  if (delta === 0 && raw.startsWith('next')) delta = 7
+  if (delta === 0 && day.startsWith('next')) delta = 7
   return { date: addDays(today, delta), how: 'weekday' }
 }
 
@@ -82,7 +93,9 @@ export function to12h(time: string): string {
 
 /** Accepts "10:00", "9:30", "10am", "2:30 pm", "14.30". Returns HH:MM or undefined. */
 export function normalizeTime(input: string): string | undefined {
-  const m = /^\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\s*$/i.exec(input)
+  // "10:30:00" (seconds), "10:30." (a full stop from the sentence) and "10 a.m." are all ordinary things for a model to send.
+  const cleaned = input.replace(/\b([ap])\.\s?m\b\.?/gi, '$1m').replace(/[\s.,!?;]+$/, '')
+  const m = /^\s*(\d{1,2})(?:[:.](\d{2})(?::\d{2})?)?\s*(am|pm)?\s*$/i.exec(cleaned)
   if (!m) return undefined
   let h = Number(m[1])
   const min = Number(m[2] ?? '0')

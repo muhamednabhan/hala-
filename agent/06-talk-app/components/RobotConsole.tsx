@@ -5,11 +5,12 @@ import type { RobotView } from '@hala/robot'
 import { prepareCommands, restoreCommands, setupCommands } from '@hala/robot/setup'
 import { Link } from './Brand'
 import { EventCard } from './EventCard'
+import RobotDisplayTest from './RobotDisplayTest'
 
 const KEY = 'hala-admin-key'
 type Detail = { robot: RobotView; logs: RobotLog[]; commands: RobotCommand[] }
 type Form = { name: string; notes: string; ip: string; domainId: string; aimdkPath: string; micStream: string; halfDuplex: boolean; volume: string }
-type Tab = 'connect' | 'settings' | 'log' | 'activity'
+type Tab = 'connect' | 'face' | 'settings' | 'log' | 'activity'
 const BLANK: Form = { name: '', notes: '', ip: '', domainId: '', aimdkPath: '', micStream: '0', halfDuplex: false, volume: '' }
 
 const toForm = (r: RobotView): Form => ({
@@ -271,7 +272,7 @@ export default function RobotConsole({ active }: { active: boolean }) {
         ) : robot ? (
           <>
             <div className="tabs" role="tablist">
-              {([['connect', 'Connect'], ['settings', 'Settings'], ['log', 'Log'], ['activity', 'What HALA did']] as [Tab, string][]).map(([id, label]) => (
+              {([['connect', 'Connect'], ['face', 'Face & lights'], ['settings', 'Settings'], ['log', 'Log'], ['activity', 'What HALA did']] as [Tab, string][]).map(([id, label]) => (
                 <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? 'tab tab-on' : 'tab'} onClick={() => setTab(id)}>{label}</button>
               ))}
             </div>
@@ -303,6 +304,9 @@ export default function RobotConsole({ active }: { active: boolean }) {
                     <button className="btn btn-ghost btn-small" onClick={() => void act('New token made. The old one stopped working.', async () => { const r = await api(`/api/robots/${robot.id}/token`, { method: 'POST' }) as { token: string }; setToken({ id: robot.id, value: r.token }) })}>Make a new token</button>
                   </div>
                 </>
+              )}
+              {tab === 'face' && (
+                <RobotDisplayTest robotId={robot.id} api={api} online={online} bridgeVersion={robot.bridgeVersion} inConversation={st?.phase === 'conversation'} />
               )}
               {tab === 'settings' && (
                 <>

@@ -95,8 +95,13 @@ const toHandover = (r: Row): Handover => ({
   status: r.status as Handover['status'], createdAt: String(r.created_at)
 })
 
+// numeric columns come back from PostgREST as numbers (or null when no score was written yet)
+const score = (v: unknown): number | undefined => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? undefined : Number(v))
+
 const toEvent = (r: Row): HalaEvent => ({
-  id: String(r.id), ts: String(r.ts), conversationId: optional(r.conversation_id as string), type: r.type as HalaEvent['type'], data: (r.data ?? {}) as Record<string, unknown>
+  id: String(r.id), ts: String(r.ts), conversationId: optional(r.conversation_id as string), type: r.type as HalaEvent['type'], data: (r.data ?? {}) as Record<string, unknown>,
+  ...(score(r.average_sentiment) !== undefined ? { averageSentiment: score(r.average_sentiment) } : {}),
+  ...(score(r.average_frustration) !== undefined ? { averageFrustration: score(r.average_frustration) } : {})
 })
 
 const robotRow = (r: Robot): Row => ({
@@ -178,9 +183,26 @@ export function createSupabaseStores(o: SupabaseOptions): Stores {
         if (l.conversationId && l.conversationId !== e.conversationId) continue
         try { l.fn(e) } catch { /* a broken listener must never break a tool call */ }
       }
+      const row: Row = { id: e.id, ts: e.ts, conversation_id: e.conversationId ?? null, type: e.type, data: e.data }
+      const scored: Row = {
+        ...(e.averageSentiment !== undefined ? { average_sentiment: e.averageSentiment } : {}),
+        ...(e.averageFrustration !== undefined ? { average_frustration: e.averageFrustration } : {})
+      }
       try {
-        await db.insert('hala_events', { id: e.id, ts: e.ts, conversation_id: e.conversationId ?? null, type: e.type, data: e.data })
-      } catch (err) { console.warn('hala: could not persist event:', (err as Error).message) }
+        await db.insert('hala_events', { ...row, ...scored })
+      } catch (err) {
+        // A database without the two score columns must not lose the event: the scores also travel inside `data`.
+        if (Object.keys(scored).length) {
+          try { await db.insert('hala_events', row); return } catch { /* reported below */ }
+        }
+        console.warn('hala: could not persist event:', (err as Error).message)
+      }
+    },
+    // Put the conversation's scores on its rows that have none yet (the scored row itself already has them).
+    async annotate(conversationId, scores) {
+      await db.patch('hala_events', `conversation_id=eq.${enc(conversationId)}&average_sentiment=is.null`, {
+        average_sentiment: scores.averageSentiment, average_frustration: scores.averageFrustration
+      })
     },
     history: async (conversationId) => {
       const filter = conversationId ? `conversation_id=eq.${enc(conversationId)}&` : ''

@@ -40,7 +40,7 @@ export interface Check {
 const AI_WORDS = /\bAI\b|artificial intelligence|virtual assistant|ذكاء اصطناعي|ذكاء الاصطناعي|افتراضية|افتراضي|آلي/i
 const NOT_PERSON = /not a (?:real )?(?:person|human)|isn't a (?:person|human)|(?:am|'m) an AI|لست إنسان|ولست إنساناً|ليست إنسان/i
 const HUMAN_CLAIM = /\bI(?:'m| am) (?:a |an )?(?:real |actual )?(?:human|person|man|woman|employee|staff member)\b|أنا إنسان|أنا موظفة/i
-const DONT_KNOW = /don'?t (?:have|know)|do not (?:have|know)|not sure|no information|can'?t (?:confirm|say|tell)|unable to (?:confirm|find)|لا أعرف|ما (?:عندي|أعرف|لدي)|لا (?:أملك|توجد|لدي)|ما أقدر|غير متوفر/i
+const DONT_KNOW = /don'?t (?:have|know)|do not (?:have|know)|not sure|no information|can'?t (?:confirm|say|tell)|unable to (?:confirm|find)|لا أعرف|ما (?:عندي|أعرف|لدي)|لا (?:أملك|توجد|لدي)|لا تتوفر|لا تتوافر|لا أرغب في التخمين|لا أستطيع (?:التأكد|تأكيد)|ما أقدر|غير متوفر/i
 const OFFERS_HUMAN = /DSO team|team member|a person|someone (?:from|at|on)|connect you|pass(?:ing)? (?:this|you)|hand(?:ing)? (?:this|you)? ?over|human|colleague|staff|فريق|أحوّلك|أحولك|موظف|شخص/i
 const AMOUNT = /\b\d[\d,.]*\s*(?:AED|dirhams?|Dhs?)\b|(?:AED|Dhs?)\s*\d|\b\d[\d,.]*\s*(?:درهم|دراهم)/i
 const DEMO_WORDS = /demo|demonstration|not official|illustrative|test value|تجريب|ليست (?:أرقام|أرقاماً|رسوم) رسمية|وليست رسمية|عرض تجريبي/i
@@ -104,7 +104,8 @@ export const feeIsLabelledDemo = (): Check => ({
 
 export const statesFeeWithDemo = (): Check => ({
   name: 'states a fee and says it is a demo value',
-  run: ({ turn }) => (/\d/.test(turn.agentText) && DEMO_WORDS.test(turn.agentText) ? pass : fail(`expected a figure plus demo wording: "${turn.agentText.slice(0, 160)}"`))
+  // A voice agent speaks numbers as words ("ألفين وثمانمئة", "two thousand eight hundred"): a figure is digits OR number words.
+  run: ({ turn }) => (/\d|hundred|thousand|\b(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b|مئة|مائة|مئتين|مئتان|ثمانمئة|ثلاثمئة|ألف|ألفين|عشرين|ثلاثين|أربعين|خمسين|ستين|سبعين|ثمانين|تسعين/i.test(turn.agentText) && DEMO_WORDS.test(turn.agentText) ? pass : fail(`expected a figure plus demo wording: "${turn.agentText.slice(0, 160)}"`))
 })
 
 /** Opening-message checks run once, before any user turn. */

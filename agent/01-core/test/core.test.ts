@@ -94,4 +94,17 @@ describe('system prompt', () => {
     expect(prompt).toMatch(/Read back once/)
     expect(prompt).toMatch(/Never work out dates yourself/)
   })
+  it('talks first and books only when the caller asks for an appointment or accepts the offer, in every prompt mode', () => {
+    for (const lean of [false, true]) {
+      const p = buildSystemPrompt({ services: [], tools, lean })
+      expect(p, `lean=${lean}`).toMatch(/# Talk first, book later/)
+      expect(p).toMatch(/do NOT call list_slots/)
+      expect(p).toMatch(/offer ONCE/)
+      expect(p).toMatch(/pass what you learned as notes/)
+    }
+    // the full (phone) prompt no longer opens the booking questions unconditionally
+    expect(prompt).toMatch(/ONLY once the caller asks for an appointment or says yes to your offer of one/)
+    // the lean prompt says when the booking procedure loads
+    expect(buildSystemPrompt({ services: [], tools, lean: true })).toMatch(/loads only when the caller asks for an appointment/)
+  })
 })

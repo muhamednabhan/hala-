@@ -4,6 +4,7 @@ import { matchServices } from './matcher'
 
 export { SERVICES } from './services'
 export { FACTS, lookupFact, type FactLookup } from './facts'
+export { deskFor, teamFor, deskLabel, type Desk } from './desks'
 export { rank, scoreKeywords, matchServices, type MatchResult, type ScoredMatch } from './matcher'
 
 export const getService = (id: string, services: Service[] = SERVICES) => services.find((s) => s.id === id)

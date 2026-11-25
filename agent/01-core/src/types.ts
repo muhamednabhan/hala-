@@ -135,8 +135,12 @@ export const EVENT_TYPES = [
   'request_logged',
   'handover_requested',
   'fact_lookup',
+  'phone_requested',
   'phone_linked',
   'phone_text_sent',
+  'pass_sent',
+  'handover_declined',
+  'conversation_scored',
   'tool_error'
 ] as const
 export type HalaEventType = (typeof EVENT_TYPES)[number]
@@ -149,6 +153,13 @@ export interface HalaEvent {
   type: HalaEventType
   /** Short, display-safe payload. No secrets. */
   data: Record<string, unknown>
+  /**
+   * ElevenLabs post-call sentiment for the whole conversation, -1 (negative) to +1 (positive). Written once the analysis is
+   * ready (`conversation_scored`), stored unscaled in hala_events.average_sentiment.
+   */
+  averageSentiment?: number
+  /** ElevenLabs post-call frustration for the whole conversation, 0 (calm) to 1 (very frustrated). hala_events.average_frustration. */
+  averageFrustration?: number
 }
 
 // ---------------------------------------------------------------- facts

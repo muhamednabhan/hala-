@@ -73,6 +73,7 @@ export const TOOL_SPECS: ToolSpec[] = [
       contact: { type: 'string', description: 'One contact: a phone number or an email (demo data).' },
       date: { type: 'string', description: 'Appointment date as YYYY-MM-DD, taken from list_slots.' },
       time: { type: 'string', description: 'Appointment start time as HH:MM in 24-hour format, taken from list_slots, e.g. 10:30.' },
+      notes: { type: 'string', optional: true, description: 'One or two English sentences with what you learned in the conversation, for the staff member who will meet them: company, headcount, urgency, documents they already have, anything unusual (demo data).' },
       language
     },
     timeoutSecs: 10, preSpeech: 'force'
@@ -146,8 +147,11 @@ export const TOOL_SPECS: ToolSpec[] = [
   {
     name: TOOL_NAMES.handover,
     description:
-      'Pass the caller to a person on the DSO team. Call immediately when the caller disputes a fee, asks for legal advice, is upset, asks for a person, asks for something out of scope, ' +
-      "or when you do not know the answer. Write the summary for the person who will take over: who, what they wanted, what you already did.",
+      "Pass the caller to a person on the DSO team. A staff member's time is scarce, so only call it when a person can actually help. " +
+      'Call it IMMEDIATELY for an emergency, a fee dispute, a legal question, a caller who is upset about a real problem, or a caller who asks for a person. ' +
+      'For a REAL DSO matter you cannot answer or do (a service you do not have, a payment, a question staff could answer), offer first, collect the name, then call it once. ' +
+      'NEVER call it for jokes, riddles, tests, trolling, flirting, trivia, off-topic chat, or impossible and absurd requests (flights to the moon, a free car): decline those yourself in one light sentence, with no tool. ' +
+      'Write the summary for the person who will take over: who, what they wanted, what you already did.',
     params: {
       reason: { type: 'string', enum: HANDOVER_REASONS, description: 'Why a person is needed.' },
       summary: { type: 'string', description: 'One or two sentences for the human taking over, in English.' },

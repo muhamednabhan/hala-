@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import type { Fulfilled } from '@hala/tools-api'
+import { passMessage } from '@hala/tools-api'
 import {
   AI_INTRO, createElevenTextAgent, createHackClubAi, createPhoneStore, createPhoneTools, createSmsService, createSupabasePhoneStore,
-  phoneTablesReady, queueNudges, type ChatPort, type PhoneStore, type PhoneTools, type SmsService, type Synthesize
+  maskPhone, phoneTablesReady, queueNudges, type ChatPort, type PhoneStore, type PhoneTools, type SmsService, type Synthesize
 } from '@hala/phone'
 import { DEFAULT_VOICE_ID } from '@hala/provisioning'
 import { elevenlabs } from '@/lib/eleven'
@@ -90,6 +92,27 @@ async function build(): Promise<Phone> {
 }
 
 export const phone = (): Promise<Phone> => (g.__halaPhone ??= build())
+
+/**
+ * A booking or logged request was saved in a conversation. If that conversation has a linked phone (the visitor scanned
+ * the QR on the screen, or called from the HALA Phone app), text the Smart Pass to it. Never throws: the booking must not
+ * fail because a text could not be stored.
+ */
+export async function deliverPass(f: Fulfilled, conversationId?: string): Promise<{ pass_sent: boolean }> {
+  if (!conversationId) return { pass_sent: false }
+  try {
+    const p = await phone()
+    const to = await p.store.phoneForConversation(conversationId)
+    if (!to) return { pass_sent: false }
+    await p.sms.sendFromAgent(to, passMessage(f.pass, f.url))
+    const h = await hala()
+    await h.stores.events.publish({ id: randomUUID(), ts: new Date().toISOString(), conversationId, type: 'pass_sent', data: { ref: f.ref, phone: maskPhone(to) } })
+    return { pass_sent: true }
+  } catch (e) {
+    console.warn('hala: could not text the pass:', (e as Error).message)
+    return { pass_sent: false }
+  }
+}
 
 /** Where the app should point: the public tunnel URL if there is one, else wherever this request came from. */
 export function publicBase(req: Request): string {

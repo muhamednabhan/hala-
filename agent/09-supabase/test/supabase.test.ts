@@ -174,3 +174,61 @@ describe('supabaseReady', () => {
     expect(r).toEqual({ ok: false, reason: 'the service key was rejected' })
   })
 })
+
+describe('conversation scores on hala_events', () => {
+  const scored: HalaEvent = {
+    id: 's1', ts: '2026-11-24T08:00:00Z', conversationId: 'c1', type: 'conversation_scored', data: { label: 'negative' },
+    averageSentiment: -0.9, averageFrustration: 0.9
+  }
+  const plain = (id: string, conversationId: string): HalaEvent => ({ id, ts: '2026-11-24T08:00:00Z', conversationId, type: 'booking_created', data: {} })
+
+  it('writes the two numbers into average_sentiment and average_frustration, and reads them back as numbers', async () => {
+    const { f, data } = fakeSupabase()
+    const stores = createSupabaseStores(opts(f))
+    await stores.events.publish(scored)
+    expect(data.get('hala_events')![0]).toMatchObject({ id: 's1', type: 'conversation_scored', average_sentiment: -0.9, average_frustration: 0.9 })
+    const [back] = await stores.events.history('c1')
+    expect(back).toMatchObject({ averageSentiment: -0.9, averageFrustration: 0.9 })
+  })
+
+  it('leaves the columns out of ordinary events (null), and maps a numeric string from PostgREST', async () => {
+    const { f, data } = fakeSupabase()
+    const stores = createSupabaseStores(opts(f))
+    await stores.events.publish(plain('p1', 'c1'))
+    expect(Object.keys(data.get('hala_events')![0]!)).not.toContain('average_sentiment')
+    data.get('hala_events')![0]!.average_sentiment = '0.25' // numeric columns can come back as strings
+    expect((await stores.events.history('c1'))[0]!.averageSentiment).toBe(0.25)
+    expect((await stores.events.history('c1'))[0]!.averageFrustration).toBeUndefined()
+  })
+
+  it("annotate puts the scores on one conversation's unscored rows only", async () => {
+    const { f, data, calls } = fakeSupabase()
+    const stores = createSupabaseStores(opts(f))
+    await stores.events.publish(plain('p1', 'c1'))
+    await stores.events.publish(plain('p2', 'c2'))
+    await stores.events.annotate!('c1', { averageSentiment: -0.3, averageFrustration: 0.2 })
+    const rows = data.get('hala_events')!
+    expect(rows.find((r) => r.id === 'p1')).toMatchObject({ average_sentiment: -0.3, average_frustration: 0.2 })
+    expect(rows.find((r) => r.id === 'p2')!.average_sentiment).toBeUndefined()
+    const patch = calls.find((c) => c.method === 'PATCH')!
+    expect(patch.url).toContain('conversation_id=eq.c1')
+    expect(patch.url).toContain('average_sentiment=is.null') // never overwrites a score that is already there
+  })
+
+  it('a database without the two columns still keeps the event (scores stay in data)', async () => {
+    const { f, data } = fakeSupabase()
+    const noColumns = (async (input: any, init: any = {}) => {
+      // like PostgREST: only a TOP-LEVEL column that does not exist is an error (the same key inside the jsonb `data` is fine)
+      if ((init.method ?? 'GET') === 'POST' && init.body && 'average_sentiment' in JSON.parse(init.body)) {
+        return new Response(JSON.stringify({ code: 'PGRST204', message: "Could not find the 'average_sentiment' column" }), { status: 400 })
+      }
+      return f(input, init)
+    }) as typeof fetch
+    const stores = createSupabaseStores(opts(noColumns))
+    await stores.events.publish({ ...scored, data: { ...scored.data, average_sentiment: -0.9 } })
+    const row = data.get('hala_events')![0]!
+    expect(row).toMatchObject({ id: 's1', type: 'conversation_scored' })
+    expect(row.average_sentiment).toBeUndefined()
+    expect(row.data.average_sentiment).toBe(-0.9)
+  })
+})

@@ -71,6 +71,27 @@ describe('find_service', () => {
   })
 })
 
+describe('booking notes (what the agent learned before booking)', () => {
+  const booking = { service_id: 'visa_renewal', attendee_name: 'Ahmed Khan', contact: '0501234567', date: '2026-11-26', time: '10:30', language: 'en' }
+  it('are optional, kept on the booking event, and trimmed to a sensible length', async () => {
+    const { call, stores } = setup()
+    const plain = await call('book_appointment', { ...booking, time: '09:00' })
+    expect(plain.ok).toBe(true)
+    const r = await call('book_appointment', { ...booking, notes: 'Company of 12 staff, visa expires in December, passport ready. ' + 'x'.repeat(900) })
+    expect(r, JSON.stringify(r)).toMatchObject({ ok: true })
+    const events = (await stores.events.history('conv_1')).filter((e) => e.type === 'booking_created')
+    expect(events).toHaveLength(2)
+    expect(events[0]!.data).not.toHaveProperty('notes')
+    const notes = String(events[1]!.data.notes)
+    expect(notes).toMatch(/^Company of 12 staff/)
+    expect(notes.length).toBeLessThanOrEqual(500)
+  })
+  it('are offered to the agent as an optional field', () => {
+    const spec = TOOL_SPECS.find((s) => s.name === 'book_appointment')!
+    expect(spec.params.notes?.optional).toBe(true)
+  })
+})
+
 describe('slots, booking, change, cancel', () => {
   it('resolves relative days on the server and speaks them in both languages', async () => {
     const r = await setup().call('list_slots', { when: 'thursday' })

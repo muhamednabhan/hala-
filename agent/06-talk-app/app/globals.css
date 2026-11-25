@@ -245,3 +245,129 @@ code { font-family: var(--mono); font-size: 0.9em; }
 @media (prefers-reduced-motion: reduce) {
   .orb span, .link-node { animation: none !important; transition: none !important; }
 }
+
+/* ---------------------------------------------------------------- Smart Pass on the screen (kiosk) */
+/* The orb shrinks to make room and the pass grows out of it: same cyan, so it reads as the voice turning into a ticket. */
+.stage.has-pass .orb { width: clamp(44px, 8vh, 64px); height: clamp(44px, 8vh, 64px); transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.stage.has-pass .link, .stage.has-pass .seg-group, .stage.has-pass .hint, .stage.has-pass .state-ar,
+.stage.has-phreq .link, .stage.has-phreq .seg-group, .stage.has-phreq .hint { display: none; }
+.stage.has-pass, .stage.has-phreq { gap: clamp(6px, 1.4vh, 12px); }
+
+.pass { position: relative; width: min(100%, 520px); text-align: start; border-radius: var(--r-card); padding: clamp(12px, 2vh, 18px) clamp(14px, 2.2vh, 20px); color: var(--white);
+  background: linear-gradient(160deg, #0c2a55 0%, var(--midnight) 70%); isolation: isolate; transform-origin: 50% 0;
+  animation: pass-in 0.75s cubic-bezier(0.2, 0.9, 0.25, 1.05) both; }
+/* the glow: a slowly turning cyan-to-blue ring just outside the card, plus a soft halo */
+.pass-glow { position: absolute; inset: -2px; border-radius: calc(var(--r-card) + 2px); z-index: -1; padding: 2px;
+  background: conic-gradient(from var(--spin, 0deg), var(--cyan), var(--blue), #7fe3ff, var(--navy), var(--cyan));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  box-shadow: 0 0 48px -6px rgba(0, 194, 255, 0.55); filter: drop-shadow(0 0 14px rgba(0, 194, 255, 0.45)); animation: pass-spin 7s linear infinite; }
+@property --spin { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+@keyframes pass-spin { to { --spin: 360deg; } }
+@keyframes pass-in { 0% { opacity: 0; transform: translateY(-46px) scale(0.45); filter: blur(6px); } 60% { opacity: 1; filter: blur(0); } 100% { opacity: 1; transform: none; } }
+.pass-close { position: absolute; top: 6px; inset-inline-end: 8px; width: 30px; height: 30px; border-radius: 999px; border: 0; background: rgba(255, 255, 255, 0.1); color: #c9d6e8; font-size: 1.2rem; line-height: 1; }
+.pass-close:hover { background: rgba(255, 255, 255, 0.2); color: var(--white); }
+.pass-head { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.14); padding-inline-end: 30px; }
+.pass-mark { width: 40px; height: 20px; color: var(--cyan); flex: none; }
+.pass-org { font-family: var(--head); font-weight: 600; font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); }
+.pass-title { font-size: clamp(1.05rem, 2.6vh, 1.4rem); letter-spacing: 0.04em; font-weight: 600; }
+.pass-body { display: flex; gap: 16px; align-items: stretch; padding-top: 12px; }
+.pass-main { flex: 1; min-width: 0; display: grid; gap: 6px; align-content: start; }
+.pass-service { font-family: var(--head); font-weight: 600; font-size: clamp(1.35rem, 3.6vh, 1.9rem); line-height: 1.05; }
+.pass-service-ar { color: #c9d6e8; font-size: 1.05rem; }
+.pass-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin: 4px 0 0; }
+.pass-facts div { display: grid; gap: 0; }
+.pass-wide { grid-column: 1 / -1; }
+.pass-facts dt { font-family: var(--head); font-weight: 600; font-size: 0.74rem; letter-spacing: 0.14em; text-transform: uppercase; color: #9fb0c6; }
+.pass-facts dd { margin: 0; font-weight: 700; font-size: 1.02rem; }
+.pass-desk-ar { color: #c9d6e8; font-size: 0.92rem; margin-top: -2px; }
+.pass-ref { display: grid; font-family: var(--head); font-weight: 700; font-size: clamp(1.8rem, 5vh, 2.6rem); letter-spacing: 0.06em; line-height: 1; color: var(--white); font-variant-numeric: tabular-nums; text-shadow: 0 0 24px rgba(0, 194, 255, 0.55); margin-top: 4px; }
+.pass-ref span { font-size: 0.74rem; letter-spacing: 0.14em; text-transform: uppercase; color: #9fb0c6; font-weight: 600; text-shadow: none; margin-bottom: 2px; }
+.pass-qr { flex: none; display: grid; justify-items: center; align-content: center; gap: 2px; text-align: center; font-size: 0.78rem; color: #c9d6e8; }
+.pass-qr img { display: block; width: clamp(104px, 17vh, 150px); height: auto; aspect-ratio: 1; background: var(--white); padding: 7px; border-radius: 10px; margin-bottom: 4px; box-shadow: 0 0 0 1px rgba(0, 194, 255, 0.5), 0 0 30px -6px rgba(0, 194, 255, 0.6); }
+.pass-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 10px; margin-top: 10px; border-top: 1px dashed rgba(255, 255, 255, 0.22); min-height: 26px; }
+.pass-sent { font-family: var(--head); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.86rem; color: var(--midnight); background: var(--cyan); border-radius: 999px; padding: 2px 12px; animation: qr-pop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.pass-demo { margin-inline-start: auto; font-family: var(--head); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; font-size: 0.74rem; color: #9fb0c6; }
+@media (max-width: 520px) { .pass-body { flex-direction: column; } .pass-qr { grid-auto-flow: column; justify-content: start; gap: 12px; text-align: start; } .pass-qr img { width: 96px; } }
+
+/* the phone QR the agent asks for */
+.phreq { display: flex; align-items: center; gap: 16px; width: min(100%, 460px); text-align: start; padding: 14px 16px; border-radius: var(--r-card); background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(0, 194, 255, 0.4); animation: pass-in 0.6s cubic-bezier(0.2, 0.9, 0.25, 1.05) both; }
+.phreq-qr { position: relative; flex: none; width: clamp(112px, 19vh, 160px); aspect-ratio: 1; padding: 7px; background: var(--white); border-radius: 10px; box-shadow: 0 0 0 1px rgba(0, 194, 255, 0.5), 0 0 36px -8px rgba(0, 194, 255, 0.55); }
+.phreq-qr img { display: block; width: 100%; height: 100%; border-radius: 4px; transition: opacity 0.3s, filter 0.3s; }
+.phreq-linked .phreq-qr img { opacity: 0.08; filter: blur(2px); }
+.phreq-check { position: absolute; inset: 0; display: grid; place-items: center; color: var(--white); animation: qr-pop 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.phreq-check::before { content: ''; position: absolute; width: 58%; height: 58%; border-radius: 999px; background: var(--blue); }
+.phreq-check svg { position: relative; }
+.phreq-title { font-family: var(--head); font-weight: 600; font-size: clamp(1.3rem, 3.4vh, 1.7rem); line-height: 1.1; }
+.phreq-sub { color: #c9d6e8; font-size: 0.92rem; margin-top: 4px; }
+.phreq-code { display: inline-block; margin-top: 8px; font-family: var(--mono); letter-spacing: 0.22em; font-size: 0.95rem; color: var(--cyan); }
+.phreq-linked { border-color: var(--cyan); }
+@media (prefers-reduced-motion: reduce) { .pass, .phreq, .pass-glow, .pass-sent { animation: none; } .stage.has-pass .orb { transition: none; } }
+
+/* ---------------------------------------------------------------- Mobile pass (/pass/HALA-1001, opened from the QR or the text) */
+/* The app shell locks the page height for the kiosk; the mobile pass is its own scrolling surface. */
+.mp { position: fixed; inset: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--cloud); padding: 0 0 36px; -webkit-overflow-scrolling: touch; }
+.mp-top { background: var(--midnight); color: var(--white); padding: max(16px, env(safe-area-inset-top)) 18px 74px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.mp-brand { display: flex; gap: 12px; align-items: center; }
+.mp-mark { width: 46px; height: 22px; color: var(--cyan); flex: none; }
+.mp-org { font-family: var(--head); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); }
+.mp-title { font-size: 1.45rem; letter-spacing: 0.03em; font-weight: 600; }
+.mp-lang { background: transparent; border: 1.5px solid rgba(255, 255, 255, 0.45); color: var(--white); border-radius: 999px; padding: 5px 14px; font-family: var(--head); font-weight: 600; letter-spacing: 0.08em; min-height: 36px; }
+.mp > section, .mp > footer { margin-inline: 16px; }
+.mp-pass { position: relative; margin-top: -56px; background: var(--white); border-radius: var(--r-card); border: 1px solid var(--line); padding: 20px 18px 18px; box-shadow: 0 10px 30px -12px rgba(1, 21, 48, 0.35); overflow: hidden; }
+.mp-pass::before { content: ''; position: absolute; inset-inline: 0; top: 0; height: 5px; background: linear-gradient(90deg, var(--blue), var(--cyan)); }
+.mp-cancelled { opacity: 0.6; }
+.mp-status { display: inline-block; font-family: var(--head); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.12em; text-transform: uppercase; padding: 2px 12px; border-radius: 999px; background: var(--ok-bg); color: var(--ok-ink); }
+.mp-status-cancelled { background: var(--bad-bg); color: var(--bad-ink); }
+.mp-status-logged { background: var(--sky-bg); color: var(--sky-ink); }
+.mp-service { font-family: var(--head); font-weight: 600; font-size: 1.9rem; line-height: 1.05; margin-top: 10px; }
+.mp-service-alt { color: var(--slate-deep); margin-top: 2px; }
+.mp-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 16px 0 0; }
+.mp-facts dt { font-family: var(--head); font-weight: 600; font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--slate-deep); }
+.mp-facts dd { margin: 0; font-weight: 700; }
+.mp-wide { grid-column: 1 / -1; }
+.mp-ref { margin-top: 18px; padding-top: 14px; border-top: 2px dashed var(--line); display: grid; }
+.mp-ref span { font-family: var(--head); font-weight: 600; font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--slate-deep); }
+.mp-ref strong { font-family: var(--head); font-size: 2.4rem; letter-spacing: 0.06em; color: var(--navy); line-height: 1.05; font-variant-numeric: tabular-nums; }
+.mp-card { margin-top: 14px; background: var(--white); border: 1px solid var(--line); border-radius: var(--r-card); padding: 16px; }
+.mp-card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.mp-card h3 { font-family: var(--head); font-weight: 600; font-size: 1.15rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--navy); display: flex; align-items: center; gap: 8px; margin: 0; }
+.mp-tag, .mp-count { font-size: 0.78rem; color: var(--slate-deep); background: var(--mist); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+.mp-live { width: 10px; height: 10px; border-radius: 999px; background: #1fb26b; box-shadow: 0 0 0 0 rgba(31, 178, 107, 0.6); animation: mp-pulse 1.8s ease-out infinite; }
+@keyframes mp-pulse { 0% { box-shadow: 0 0 0 0 rgba(31, 178, 107, 0.55); } 100% { box-shadow: 0 0 0 12px rgba(31, 178, 107, 0); } }
+.mp-wait { margin-top: 6px; color: var(--slate-deep); }
+.mp-wait strong { font-family: var(--head); font-size: 3rem; color: var(--midnight); line-height: 1; font-variant-numeric: tabular-nums; }
+.mp-queue-label { font-weight: 700; margin-top: 2px; }
+.mp-dots { display: flex; gap: 6px; margin-top: 12px; align-items: center; }
+.mp-dots i { width: 22px; height: 10px; border-radius: 6px; background: var(--line); }
+.mp-dots i.mp-me { background: var(--blue); width: 32px; }
+.mp-small { color: var(--slate-deep); font-size: 0.86rem; margin-top: 8px; }
+.mp-detail { margin-top: 8px; background: var(--cloud); border-radius: var(--r-ctl); padding: 10px 12px; }
+.mp-bar { height: 8px; border-radius: 6px; background: var(--mist); margin-top: 10px; overflow: hidden; }
+.mp-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), var(--cyan)); border-radius: 6px; transition: width 0.3s; }
+.mp-checks { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; }
+.mp-check { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: center; min-height: 48px; padding: 6px 4px; border-radius: var(--r-ctl); cursor: pointer; }
+.mp-check input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.mp-box { width: 26px; height: 26px; border-radius: 8px; border: 2px solid #9fb0c6; display: grid; place-items: center; background: var(--white); transition: background 0.15s, border-color 0.15s; }
+.mp-check-on .mp-box { background: var(--blue); border-color: var(--blue); }
+.mp-check-on .mp-box::after { content: ''; width: 7px; height: 13px; border: solid var(--white); border-width: 0 3px 3px 0; transform: translateY(-1px) rotate(45deg); }
+.mp-check input:focus-visible + .mp-box { outline: 3px solid var(--blue); outline-offset: 2px; }
+.mp-check-on .mp-doc { color: var(--slate-deep); text-decoration: line-through; text-decoration-color: rgba(91, 103, 125, 0.5); }
+.mp-cta { margin-top: 16px; text-align: center; }
+.mp-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 54px; border-radius: var(--r-ctl); background: var(--blue); color: var(--white); text-decoration: none; font-family: var(--head); font-weight: 600; font-size: 1.15rem; letter-spacing: 0.1em; text-transform: uppercase; }
+.mp-btn:active { background: #2459d8; }
+.mp-foot { margin-top: 20px; font-size: 0.78rem; color: var(--slate-deep); text-align: center; }
+.mp-empty { display: grid; place-content: center; justify-items: center; text-align: center; gap: 10px; padding: 24px; }
+.mp-empty .mp-mark { color: var(--navy); width: 64px; height: 31px; }
+.mp-empty h1 { font-size: 1.6rem; }
+@media (prefers-reduced-motion: reduce) { .mp-live { animation: none; } .mp-bar i, .mp-box { transition: none; } }
+
+/* ---------------------------------------------------------------- Robot: face, lights and screen test card */
+.facetest { display: grid; gap: 10px; align-content: start; }
+.facetest-h { font-family: var(--head); font-weight: 600; font-size: 1.05rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--navy); margin: 10px 0 0; display: flex; gap: 10px; align-items: center; }
+.facegrid { display: flex; flex-wrap: wrap; gap: 6px; }
+.facegrid .btn { min-height: 34px; padding: 0 12px; font-size: 0.9rem; letter-spacing: 0.04em; text-transform: none; }
+.facenum { color: var(--slate-deep); font-variant-numeric: tabular-nums; margin-inline-end: 2px; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 999px; border: 1px solid rgba(1, 21, 48, 0.35); vertical-align: -1px; margin-inline-end: 2px; }
+.colorpick { padding: 2px; height: 40px; min-width: 64px; }
+.facetest select.input { min-height: 40px; }
+.facetest .check-row { font-size: 0.9rem; }

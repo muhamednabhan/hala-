@@ -44,16 +44,37 @@ export const SERVICE_HOURS = {
   slotMinutes: 30
 } as const
 
-/** Reasons that always mean a person should take over, with how to phrase the hand-over. */
+/**
+ * Reasons that mean a person should take over, with how to phrase the hand-over.
+ * A hand-over costs a DSO staff member's time, so the soft reasons (out_of_scope, unknown_answer, other) are only for REAL
+ * DSO matters. Jokes, tests, nonsense and impossible requests are declined by the agent itself (see TRIAGE).
+ */
 export const HANDOVER_GUIDE: Record<HandoverReason, { when: string }> = {
   fee_dispute: { when: 'The caller disputes, contests or objects to a fee or charge (not just asks what it is).' },
   legal_question: { when: 'The caller asks for legal, contractual or regulatory advice.' },
-  upset_caller: { when: 'The caller is angry, distressed, or has repeated the same problem twice without progress.' },
-  out_of_scope: { when: 'The request is outside DSO services (payments, real account changes, anything not in the catalogue).' },
-  unknown_answer: { when: 'You do not know the answer and the fact lookup found nothing.' },
+  upset_caller: { when: 'The caller is genuinely angry or distressed about a real problem, or has repeated the same problem twice without progress.' },
+  out_of_scope: { when: 'A REAL DSO matter you cannot do yourself (a payment, a real account change, a service not in the catalogue that DSO staff could act on). Never for jokes, tests, trivia or requests nobody at DSO could fulfil: decline those yourself.' },
+  unknown_answer: { when: 'A genuine DSO question that a staff member could answer and that you could not find. Ask first. Never for chit-chat or off-topic questions.' },
   caller_requested: { when: 'The caller asks to talk to a person, a manager or the team.' },
   emergency: { when: 'Anything involving danger, injury, fire or a security threat. Also tell them to call 999.' },
-  other: { when: 'Anything else that needs a human.' }
+  other: { when: 'A real DSO matter that needs a human and fits no other reason.' }
+}
+
+/**
+ * Who deserves a person. One rule, worded once, used by the prompt, the procedures and the tool description so they
+ * cannot drift apart. The model decides at once and without a tool: a staff member's time is the scarce thing.
+ */
+export const TRIAGE = {
+  handNow: 'an emergency, fee dispute, legal question, a caller upset about a real problem, or a request for a person',
+  offerFirst: 'a real DSO matter you cannot answer or do (a payment, a service you do not have, a question staff could answer)',
+  decline: 'jokes, tests, nonsense, trolling, flirting, trivia, off-topic chat, impossible asks (a flight to the moon, a free car)',
+  test: 'Could DSO staff do something useful with it? If not, decline it yourself.'
+} as const
+
+/** What a decline sounds like: one light sentence, then back to what HALA can do. Never offers a person. */
+export const DECLINE_EXAMPLE: Bilingual = {
+  en: "Ha, I wish! Mars is not on my list. I can help with visas, licences, access cards and maintenance. What do you need?",
+  ar: 'ياليت أقدر، بس رحلات المريخ مو من خدماتي. أقدر أساعدك بالتأشيرات والرخص وبطاقات الدخول والصيانة. شو تحتاج؟'
 }
 
 /** Phrases an agent reply must never contain; used by evals as cheap tripwires. */

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { HalaEvent } from '@hala/core'
 import { schemaFor, type ToolSpec } from '@hala/tools-api'
-import { normalizeSpokenCode } from './codes'
+import { normalizeSpokenCode, smsBodyFor } from './codes'
 import { maskPhone } from './numbers'
 import type { PhoneStore } from './store'
 
@@ -10,6 +10,33 @@ import type { PhoneStore } from './store'
  * and robot agents (and the tests that pin them) stay exactly as they were.
  */
 export const PHONE_TOOL_NAMES = { lookupContact: 'lookup_contact_by_code', sendText: 'send_text_message' } as const
+
+/**
+ * The QR flow for the robot and the web agent (the phone agent already knows the caller's number). The agent asks for the
+ * QR when it needs a contact; the screen shows it; the visitor scans it and texts the code; the agent then reads the linked
+ * contact. Nobody has to say a phone number out loud.
+ */
+export const LINK_TOOL_NAMES = { requestLink: 'request_phone_link', getLinked: 'get_linked_phone' } as const
+
+export const LINK_TOOL_SPECS: ToolSpec[] = [
+  {
+    name: LINK_TOOL_NAMES.requestLink,
+    description:
+      'Show a QR code on the screen so the caller can share their phone number without saying it: they scan it with their phone camera and send the text that opens. ' +
+      "Call it when a booking or request needs the caller's contact and no phone is linked yet. It returns at once; keep asking the other questions (name, day) while they scan. " +
+      'Before you book or log, call get_linked_phone.',
+    params: {},
+    timeoutSecs: 8, preSpeech: 'off'
+  },
+  {
+    name: LINK_TOOL_NAMES.getLinked,
+    description:
+      'Get the phone number the caller linked by scanning the QR on the screen. Call it right before booking or logging a request. ' +
+      'If it says not linked yet, wait a moment and try once more, then offer to take the number aloud. Never read the full number aloud.',
+    params: {},
+    timeoutSecs: 8, preSpeech: 'off'
+  }
+]
 
 export const PHONE_TOOL_SPECS: ToolSpec[] = [
   {
@@ -49,9 +76,12 @@ const safeEqual = (a: string, b: string) => {
   return ab.length === bb.length && timingSafeEqual(ab, bb)
 }
 
-export const isPhoneTool = (name: string) => PHONE_TOOL_SPECS.some((s) => s.name === name)
+const ALL_SPECS = [...PHONE_TOOL_SPECS, ...LINK_TOOL_SPECS]
+export const isPhoneTool = (name: string) => ALL_SPECS.some((s) => s.name === name)
 
 export function createPhoneTools(o: PhoneToolsOptions) {
+  /** conversation id -> the code its QR shows. */
+  const issued = new Map<string, string>()
   const authorised = (headers: Headers | Record<string, string | undefined>) => {
     if (o.insecureNoAuth) return true
     if (!o.secret) return false
@@ -61,7 +91,7 @@ export function createPhoneTools(o: PhoneToolsOptions) {
 
   async function handle(name: string, headers: Headers | Record<string, string | undefined>, json: unknown) {
     if (!authorised(headers)) return { status: 401, body: { ok: false, error_code: 'unauthorized' } as Record<string, unknown> }
-    const spec = PHONE_TOOL_SPECS.find((s) => s.name === name)
+    const spec = ALL_SPECS.find((s) => s.name === name)
     if (!spec) return { status: 404, body: { ok: false, error_code: 'unknown_tool' } as Record<string, unknown> }
     const parsed = schemaFor(spec).safeParse(json)
     if (!parsed.success) {
@@ -86,6 +116,36 @@ export function createPhoneTools(o: PhoneToolsOptions) {
           instruction: 'Use `contact` as the contact for bookings and requests. Do not read the number aloud. If you must confirm it, say only the last four digits.'
         }
       }
+    }
+
+    if (name === LINK_TOOL_NAMES.getLinked) {
+      const linked = conversationId ? await o.store.phoneForConversation(conversationId) : undefined
+      const contact = linked ? await o.store.contactByPhone(linked) : undefined
+      if (!linked || !contact) {
+        return { status: 200, body: { ok: true, found: false, instruction: 'Not linked yet. If they are scanning right now, wait a moment and call this once more. If it still is not linked, say so kindly and offer to take the number aloud instead.' } }
+      }
+      return {
+        status: 200,
+        body: {
+          ok: true, found: true, contact: linked, last_four: linked.replace(/\D/g, '').slice(-4), ...(contact.name ? { name: contact.name } : {}),
+          instruction: 'Use `contact` as the contact for the booking or request. Do not read the number aloud. If you must confirm it, say only the last four digits.'
+        }
+      }
+    }
+
+    if (name === LINK_TOOL_NAMES.requestLink) {
+      if (!conversationId) return { status: 200, body: { ok: false, error_code: 'no_conversation', message: 'No conversation id', instruction: 'Ask the caller to say their phone number instead.' } }
+      if (await o.store.phoneForConversation(conversationId)) {
+        return { status: 200, body: { ok: true, already_linked: true, instruction: 'Their phone is already linked. Do not show the QR again. Call get_linked_phone for the contact.' } }
+      }
+      // The same QR for the same conversation: asking twice must not swap the code under the visitor's phone.
+      let code = issued.get(conversationId)
+      const known = code ? await o.store.getCode(code) : undefined
+      if (!code || !known || known.phone) code = (await o.store.issueCode({ conversationId })).code
+      issued.set(conversationId, code)
+      if (issued.size > 200) issued.delete(issued.keys().next().value as string)
+      await o.publish?.({ type: 'phone_requested', conversationId, data: { code, qr: `/api/phone/qr?code=${code}`, sms_body: smsBodyFor(code) } })
+      return { status: 200, body: { ok: true, qr_on_screen: true, instruction: 'A QR code is now on the screen. Ask them to scan it with their phone camera and send the text that opens. Keep going with the other questions meanwhile. Before you book, call get_linked_phone.' } }
     }
 
     // send_text_message

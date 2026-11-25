@@ -8,6 +8,8 @@ import { FACTS, SERVICES, findServices, getService, lookupFact } from '@hala/cat
 import { createCalendar, type Calendar, type CalendarResult, type Slot } from '@hala/booking'
 import { TOOL_NAMES, specByName, type ParamSpec, type ToolSpec } from './specs'
 import { clean, maskContact, normalizeRef, spokenDate, spokenRef, spokenTime } from './speech'
+import { passFromBooking, passFromRequest, passUrl, type SmartPass } from './pass'
+import { triageHandover } from './triage'
 
 export interface ToolApiOptions {
   stores: Stores
@@ -23,6 +25,26 @@ export interface ToolApiOptions {
    * (a network trip) happens in the background, returned as `background` so a serverless host can keep it alive.
    */
   deferEvents?: boolean
+  /**
+   * Public https origin the Smart Pass QR points at (the tunnel). A function, because the tunnel URL changes while the app
+   * runs. Without it the pass links to localhost, which a phone cannot open.
+   */
+  passBaseUrl?: () => string | undefined
+  /**
+   * Runs after a booking or request is saved, before the answer goes back to the agent. The app uses it to text the pass to
+   * the caller's linked phone. It may report `pass_sent`, which the agent is told to mention. It must never throw.
+   */
+  onFulfilled?: (f: Fulfilled, conversationId: string | undefined) => Promise<{ pass_sent?: boolean } | void>
+}
+
+/** A saved booking or logged request, with its Smart Pass and the signed link to it. */
+export interface Fulfilled {
+  kind: 'booking' | 'request'
+  ref: string
+  pass: SmartPass
+  url: string
+  /** The same booking or request came back again (a retried tool call): do not announce or send it twice. */
+  duplicate: boolean
 }
 
 export interface ToolResponse { status: number; body: Record<string, unknown>; background?: Promise<unknown> }
@@ -31,6 +53,8 @@ type Args = Record<string, unknown>
 interface Outcome { body: Record<string, unknown>; event?: Pick<HalaEvent, 'type' | 'data'> }
 
 const paramSchema = (key: string, p: ParamSpec) => {
+  // Free text the agent composes itself: a wordy note must never make the booking fail, it is trimmed in the handler instead.
+  if (key === 'notes') return z.string().max(4000).nullish()
   if (p.optional) return (p.enum ? z.enum(p.enum as [string, ...string[]]) : z.string().max(600)).nullish()
   // The agent is told to pass `language`, but a missing one must never block a booking: default to English.
   if (key === 'language') return z.enum(['en', 'ar']).optional()
@@ -78,7 +102,8 @@ const serviceView = (s: Service) => ({
 /** Where a person can be reached. From the DSO knowledge base. The agent may offer it after a hand-over. */
 const HUMAN_CONTACT = { phone: '600 59 55 57', hours: 'Monday to Friday, 8 AM to 3 PM Dubai time', email: 'hello@dso.ae' }
 
-const NOT_FOUND_HELP = 'Offer to connect them to the DSO team and call handover_to_human if they accept.'
+// Only a real DSO matter earns a person. A joke, a test or an impossible request is declined by the agent itself.
+const NOT_FOUND_HELP = 'If this is a real DSO matter, offer to connect them to the DSO team and call handover_to_human only if they accept. If it is a joke, a test, off-topic or impossible, decline lightly yourself, say what you can help with, and do NOT offer a person.'
 
 export function createToolApi(opts: ToolApiOptions) {
   const { stores } = opts
@@ -86,6 +111,19 @@ export function createToolApi(opts: ToolApiOptions) {
   const facts = opts.facts ?? FACTS
   const clock = opts.clock ?? systemClock
   const calendar: Calendar = createCalendar({ bookings: stores.bookings, clock })
+
+  const base = () => opts.passBaseUrl?.() ?? 'http://localhost:3005'
+  const link = (ref: string) => (opts.secret ? passUrl(base(), ref, opts.secret) : '')
+  /** Tell the app (it texts the pass to a linked phone) and fold the result into what the agent is told. */
+  async function fulfilled(f: Fulfilled, conversationId: string | undefined): Promise<{ pass_sent: boolean }> {
+    try {
+      const r = f.duplicate ? undefined : await opts.onFulfilled?.(f, conversationId)
+      return { pass_sent: Boolean(r?.pass_sent) }
+    } catch { return { pass_sent: false } }
+  }
+  const sentClause = (sent: boolean) => (sent
+    ? " and has been texted to the caller's phone: say so in one short clause"
+    : ': point to it, and do not say anything was sent to a phone')
 
   const calendarFailure = (r: Extract<CalendarResult<unknown>, { ok: false }>): Outcome => ({
     body: {
@@ -187,12 +225,16 @@ export function createToolApi(opts: ToolApiOptions) {
       })
       if (!result.ok) return calendarFailure(result)
       const { booking, duplicate } = result.value
+      const notes = clean(a.notes, 500)
+      const pass = passFromBooking(booking, services)
+      const url = link(booking.ref)
+      const sent = pass ? await fulfilled({ kind: 'booking', ref: booking.ref, pass, url, duplicate }, conversationId) : { pass_sent: false }
       return {
         body: {
-          ok: true, booking: bookingView(booking), already_booked: duplicate,
-          instruction: 'Confirm out loud: the service, the day, the time and the reference number digit by digit. Say it is a demo booking if the caller asks. Then ask if there is anything else.'
+          ok: true, booking: bookingView(booking), already_booked: duplicate, pass_on_screen: true, pass_sent: sent.pass_sent,
+          instruction: `Confirm out loud: the service, the day, the time and the reference number digit by digit. Say it is a demo booking if the caller asks. A Smart Pass with the details is now on the screen${sentClause(sent.pass_sent)}. Then ask if there is anything else.`
         },
-        event: { type: 'booking_created', data: { ref: booking.ref, service: service.id, date: booking.date, time: booking.time, attendee: booking.attendeeName, contact: maskContact(booking.contact), duplicate } }
+        event: { type: 'booking_created', data: { ref: booking.ref, service: service.id, date: booking.date, time: booking.time, attendee: booking.attendeeName, contact: maskContact(booking.contact), duplicate, ...(notes ? { notes } : {}), ...(pass ? { pass, pass_url: url, pass_sent: sent.pass_sent } : {}) } }
       }
     },
 
@@ -205,9 +247,10 @@ export function createToolApi(opts: ToolApiOptions) {
       const result = await calendar.reschedule(ref, date, time)
       if (!result.ok) return calendarFailure(result)
       const { booking, previous } = result.value
+      const pass = passFromBooking(booking, services)
       return {
-        body: { ok: true, booking: bookingView(booking), previous: { date_spoken: spokenDate(previous.date), time_spoken: spokenTime(previous.time) }, instruction: 'Confirm the new day and time out loud, then ask if there is anything else.' },
-        event: { type: 'booking_rescheduled', data: { ref, date: booking.date, time: booking.time, from: previous } }
+        body: { ok: true, booking: bookingView(booking), previous: { date_spoken: spokenDate(previous.date), time_spoken: spokenTime(previous.time) }, instruction: 'Confirm the new day and time out loud (the Smart Pass on the screen has updated), then ask if there is anything else.' },
+        event: { type: 'booking_rescheduled', data: { ref, date: booking.date, time: booking.time, from: previous, ...(pass ? { pass, pass_url: link(ref) } : {}) } }
       }
     },
 
@@ -263,13 +306,16 @@ export function createToolApi(opts: ToolApiOptions) {
         location: clean(a.location, 80) || undefined, language: lang(a.language), conversationId, createdAt: clock.now().toISOString()
       }
       if (!existing) { await stores.requests.create(request); await stores.requests.saveKey(key, request.ref) }
+      const pass = passFromRequest(request, services)
+      const url = link(request.ref)
+      const sent = pass ? await fulfilled({ kind: 'request', ref: request.ref, pass, url, duplicate: Boolean(existing) }, conversationId) : { pass_sent: false }
       return {
         body: {
           ok: true, ref: request.ref, ref_spoken: spokenRef(request.ref), service: service.name, already_logged: Boolean(existing),
-          demo_timeline_text: service.timelineText, demo_notice: DEMO_NOTICE,
-          instruction: 'Confirm that the request is logged and give the reference digit by digit. You may say the timeline only if the caller asks, as a demo value. Do not promise a time or an outcome.'
+          demo_timeline_text: service.timelineText, demo_notice: DEMO_NOTICE, pass_on_screen: true, pass_sent: sent.pass_sent,
+          instruction: `Confirm that the request is logged and give the reference digit by digit. A Smart Pass with the reference is now on the screen${sentClause(sent.pass_sent)}. You may say the timeline only if the caller asks, as a demo value. Do not promise a time or an outcome.`
         },
-        event: { type: 'request_logged', data: { ref: request.ref, service: service.id, caller: callerName, contact: maskContact(contact), summary: details.slice(0, 140) } }
+        event: { type: 'request_logged', data: { ref: request.ref, service: service.id, caller: callerName, contact: maskContact(contact), summary: details.slice(0, 140), duplicate: Boolean(existing), ...(pass ? { pass, pass_url: url, pass_sent: sent.pass_sent } : {}) } }
       }
     },
 
@@ -290,9 +336,34 @@ export function createToolApi(opts: ToolApiOptions) {
 
     async [TOOL_NAMES.handover](a, conversationId) {
       const reason = (HANDOVER_REASONS as readonly string[]).includes(String(a.reason)) ? (a.reason as HandoverReason) : 'other'
+      const summary = clean(a.summary, 500)
+      // A joke or a test does not belong in the staff queue. Emergencies, disputes, legal questions, upset callers and
+      // requests for a person are never filtered (see triage.ts).
+      const verdict = triageHandover({ reason, summary })
+      if (verdict.route === 'decline') {
+        return {
+          body: {
+            ok: true, handed_over: false, reason_not_passed: verdict.why,
+            instruction: 'Nobody on the DSO team has been notified, on purpose: this is not something staff can act on. Do not say you passed it on. Reply in one short, light, friendly sentence, say what you can help with (visas, licences, access cards, maintenance, complaints), and carry on. Do not offer a person.'
+          },
+          event: { type: 'handover_declined', data: { reason, summary: summary.slice(0, 140), why: verdict.why } }
+        }
+      }
+      // The same caller must not create the same hand-over twice (the agent is told once; this makes it so).
+      if (conversationId) {
+        const open = (await stores.handovers.list()).find((h) => h.conversationId === conversationId && h.reason === reason && h.status === 'open')
+        if (open) {
+          return {
+            body: {
+              ok: true, handover_id: open.id, handover_ref_spoken: spokenRef(open.id), already_open: true, human_contact: HUMAN_CONTACT,
+              instruction: 'The DSO team already has this from earlier in the conversation. Do not repeat the hand-over message. Say once that it has been noted, then carry on.'
+            }
+          }
+        }
+      }
       const handover = {
         // Digits only, so the agent can read it aloud (a random hex id came out as "H O four a one three...").
-        id: `HO-${Math.floor(10000 + Math.random() * 90000)}`, reason, language: lang(a.language), summary: clean(a.summary, 500),
+        id: `HO-${Math.floor(10000 + Math.random() * 90000)}`, reason, language: lang(a.language), summary,
         callerName: clean(a.caller_name, 80) || undefined, contact: clean(a.contact, 80) || undefined,
         conversationId, status: 'open' as const, createdAt: clock.now().toISOString()
       }

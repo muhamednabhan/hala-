@@ -1,6 +1,7 @@
 import type { ElevenLabsClient } from '@elevenlabs/elevenlabs-js'
 import { TOOL_NAMES } from '@hala/tools-api'
 import { buildProcedures } from '@hala/core'
+import { LINK_TOOL_NAMES } from '@hala/provisioning'
 import { rulesHash, toApiRules } from './pronunciation'
 import { loadDocs } from './docs'
 
@@ -50,7 +51,9 @@ export async function syncKnowledgeBase(client: Client): Promise<KbRef[]> {
 const TOOLS = {
   findService: TOOL_NAMES.findService, serviceProcess: TOOL_NAMES.serviceProcess, listSlots: TOOL_NAMES.listSlots, book: TOOL_NAMES.book,
   reschedule: TOOL_NAMES.reschedule, cancel: TOOL_NAMES.cancel, checkBooking: TOOL_NAMES.checkBooking, checkRequest: TOOL_NAMES.checkRequest,
-  logRequest: TOOL_NAMES.logRequest, handover: TOOL_NAMES.handover
+  logRequest: TOOL_NAMES.logRequest, handover: TOOL_NAMES.handover,
+  // web and robot agents get the QR phone-link tools (the phone agent is not lean and has no procedures)
+  requestPhoneLink: LINK_TOOL_NAMES.requestLink, getLinkedPhone: LINK_TOOL_NAMES.getLinked
 }
 
 /** Create or update each procedure draft on the agent's main branch, then publish them in one new agent version. */
@@ -73,4 +76,26 @@ export async function syncProcedures(client: Client, agentId: string, descriptio
   const all = (await agents.procedures.list(agentId, branchId)).procedures ?? []
   const startIds = all.filter((p) => p.name === buildProcedures(TOOLS)[0]!.name).map((p) => p.procedureId)
   return { branchId, created, updated, startIds }
+}
+
+/**
+ * Read-only: does every live procedure equal what `syncProcedures` would write (name, trigger, content), and is a draft waiting
+ * unpublished? One line per difference; an empty list means the agent is in step with the code. Changes nothing.
+ */
+export async function diffProcedures(client: Client, agentId: string): Promise<string[]> {
+  const agents = client.conversationalAi.agents
+  const branchId = ((await agents.get(agentId)) as unknown as { mainBranchId: string }).mainBranchId
+  const have = (await agents.procedures.list(agentId, branchId)).procedures ?? []
+  const out: string[] = []
+  const wanted = buildProcedures(TOOLS)
+  for (const def of wanted) {
+    const match = have.find((p) => p.name === def.name)
+    if (!match) { out.push(`procedure "${def.name}": missing on the live agent`); continue }
+    if (match.hasDraft) out.push(`procedure "${def.name}": has an unpublished draft`)
+    const live = (await agents.procedures.get(agentId, branchId, match.procedureId)) as unknown as { content?: string; trigger?: string }
+    if (live.content !== def.content) out.push(`procedure "${def.name}": content differs (live ${live.content?.length ?? 0} chars, code ${def.content.length} chars)`)
+    if (live.trigger !== def.trigger) out.push(`procedure "${def.name}": trigger differs`)
+  }
+  for (const p of have) if (!wanted.some((d) => d.name === p.name)) out.push(`procedure "${p.name}": only on the live agent (the code does not define it)`)
+  return out
 }

@@ -1,3 +1,5 @@
-export { buildAgentConfig, agentName, DEFAULT_LLM, V3_MODEL, AUDIO_TAGS, DEFAULT_VOICE_ID, BASE_LANGUAGE, TTS_MODEL, type AgentConfig, type AgentConfigOptions, type Channel } from './agent-config'
+export { buildAgentConfig, agentName, DEFAULT_LLM, V3_MODEL, AUDIO_TAGS, ROBOT_AUDIO_TAGS, ROBOT_TTS_MODEL, DEFAULT_VOICE_ID, BASE_LANGUAGE, TTS_MODEL, type AgentConfig, type AgentConfigOptions, type Channel } from './agent-config'
 export { syncAgent, conversationToken, redact, type SyncResult } from './sync'
+export { LINK_TOOL_NAMES } from '@hala/phone'
+export { createScorer, toScore, type Scorer, type ScoringOptions, type ScoringRun, type Score, type ConversationSummary } from './scoring'
 export { ensureToolSecret, readHalaEnv, setHalaVar, isPublicHttps, HALA_ENV_FILE } from './hala-env'

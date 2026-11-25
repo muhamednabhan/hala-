@@ -37,6 +37,11 @@ export class SmsError extends Error {
 
 const hasArabic = (s: string) => /[؀-ۿ]/.test(s)
 
+/** "[warmly] Welcome" -> "Welcome". Audio tags are short bracketed words; real brackets with long text are kept. */
+export const stripAudioTags = (s: string): string =>
+  // ALL-CAPS brackets such as [DEMO] are labels, not voice directions: keep them.
+  s.replace(/\[([a-z][a-z ,'-]{1,30})\]\s*/gi, (whole, inner: string) => (inner === inner.toUpperCase() ? whole : '')).replace(/\s{2,}/g, ' ').trim()
+
 export const LINKED_TEXT = {
   en: "You're connected. I'm HALA, an AI assistant for Dubai Silicon Oasis, not a person. Text me anything, in English or Arabic, and I can find a service, book a slot or pass you to the DSO team.",
   ar: 'تم الربط. أنا هلا، مساعدة ذكاء اصطناعي من واحة دبي للسيليكون، ولست إنساناً. اكتب لي أي شيء بالعربي أو الإنجليزي وأقدر أدلّك على الخدمة أو أحجز لك موعد أو أحوّلك لفريق واحة دبي للسيليكون.'
@@ -84,6 +89,8 @@ export function createSmsService(o: SmsServiceOptions) {
       if (!known) continue
       const res = await store.linkCode(c.code, phone)
       if (res.ok) {
+        // The QR was shown for a conversation (the robot's, or the web page's): from now on its tools know this phone.
+        if (res.record.conversationId) await store.bindConversation(res.record.conversationId, phone)
         replies.push(await reply(phone, LINKED_TEXT[language], language, false))
         await publish({
           type: 'phone_linked', conversationId: res.record.conversationId,
@@ -109,11 +116,14 @@ export function createSmsService(o: SmsServiceOptions) {
         text
       )
       if (answer.conversationId) await store.bindConversation(answer.conversationId, phone)
-      const joined = answer.texts.join(' ')
+      // Expressive voices put audio tags like [warmly] in the text. They are for the speaker, never for a text thread, and
+      // the voice-message voice (flash) would read them out loud.
+      const texts = answer.texts.map(stripAudioTags).filter(Boolean)
+      const joined = texts.join(' ')
       if (input.voice && o.synthesize) {
         replies.push(await reply(phone, joined, hasArabic(joined) ? 'ar' : language, true))
       } else {
-        for (const t of answer.texts) replies.push(await reply(phone, t, language, false))
+        for (const t of texts) replies.push(await reply(phone, t, language, false))
       }
     } catch (e) {
       await publish({ type: 'tool_error', data: { channel: 'sms', phone: maskContact(phone), message: (e as Error).message.slice(0, 160) } })
@@ -133,7 +143,7 @@ export function createSmsService(o: SmsServiceOptions) {
 
   /** HALA texts a phone on its own (a follow-up the agent asked for, or a proactive notice). */
   async function sendFromAgent(phone: string, text: string): Promise<PhoneMessage> {
-    return store.addMessage({ phone, from: 'agent', kind: 'text', text: text.replace(/\s+/g, ' ').trim().slice(0, 600) })
+    return store.addMessage({ phone, from: 'agent', kind: 'text', text: stripAudioTags(text).replace(/\s+/g, ' ').trim().slice(0, 600) })
   }
 
   return { receive, sendFromAgent, warm }

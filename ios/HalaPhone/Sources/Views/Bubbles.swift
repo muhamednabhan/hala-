@@ -41,7 +41,7 @@ struct TextBubble: View {
     let showTail: Bool
 
     var body: some View {
-        Text(message.text)
+        Text(linkified(message.text))
             .font(.system(size: 17))
             .foregroundStyle(message.fromMe ? Color.white : Color.primary)
             .padding(.horizontal, 13)
@@ -51,6 +51,22 @@ struct TextBubble: View {
             .opacity(message.state == .sending ? 0.7 : 1)
             .accessibilityLabel("\(message.fromMe ? "You" : "HALA"): \(message.text)")
     }
+}
+
+/// Makes every web address in a message tappable. HALA texts the Smart Pass link, and SwiftUI's `Text` does not
+/// detect links in a plain String. A message with no link comes back unchanged.
+func linkified(_ string: String) -> AttributedString {
+    var result = AttributedString(string)
+    guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return result }
+    let whole = NSRange(string.startIndex..., in: string)
+    for match in detector.matches(in: string, options: [], range: whole) {
+        guard let url = match.url,
+              let range = Range(match.range, in: string),
+              let lower = AttributedString.Index(range.lowerBound, within: result),
+              let upper = AttributedString.Index(range.upperBound, within: result) else { continue }
+        result[lower..<upper].link = url
+    }
+    return result
 }
 
 /// A voice message from HALA: play button, waveform, length, and the transcript underneath, like the

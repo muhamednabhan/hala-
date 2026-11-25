@@ -27,7 +27,8 @@ const dev = flag('dev')
 const dev2 = flag('dev2') // second experimental copy
 const noSheet = flag('no-sheet')
 const lean = flag('lean')
-const voice = (opt('voice') ?? 'v3') as 'v3' | 'flash'
+/** Unset means "the channel's own default": expressive v3 for web and phone, expressive v4 turbo for the robot. `--voice flash` opts out. */
+const voice = opt('voice') as 'v3' | 'flash' | undefined
 const llm = opt('llm')
 const preSpeech = opt('pre-speech') as 'force' | 'auto' | 'off' | undefined
 const kb = get('HALA_KB_B64') ? (JSON.parse(Buffer.from(get('HALA_KB_B64')!, 'base64').toString('utf8')) as { id: string; name: string }[]) : []
@@ -64,7 +65,9 @@ if (!dry && !process.env.ELEVENLABS_API_KEY) {
 for (const channel of channels) {
   const config = buildAgentConfig({
     channel, publicBaseUrl: baseUrl || 'https://example.invalid', toolSecret: secret, voiceId: get('HALA_VOICE_ID'),
-    lean, sheet: !noSheet, ...(preSpeech ? { preSpeech } : {}), voiceModel: voice, knowledge: kb, pronunciation: pron,
+    lean, sheet: !noSheet, ...(preSpeech ? { preSpeech } : {}), ...(voice ? { voiceModel: voice } : {}),
+    // The phone line has no knowledge base on purpose (full prompt, no retrieval step: faster calls). `--kb` attaches it anyway.
+    knowledge: channel === 'phone' && !flag('kb') ? [] : kb, pronunciation: pron,
     ...(llm ? { llm: llm as never } : {}), ...(dev ? { nameSuffix: '(dev)' } : dev2 ? { nameSuffix: '(dev2)' } : {}),
     contactTool: flag('contact-tool'), humanVoice: channel === 'phone' || flag('human') ? true : undefined, ttsModel: get('HALA_TTS_MODEL') as never
   })

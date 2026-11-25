@@ -139,7 +139,13 @@ describe('checks: an ideal agent passes, a bad one fails', () => {
     expect(failures('fee_demo_label_en', '', [good])).toEqual([])
     const bad = turn(0, 'fee?', 'Renewal is 2700 dirhams and takes 4 days.', [['find_service']])
     expect(failures('fee_demo_label_en', '', [bad]).length).toBeGreaterThan(0)
-    expect(failures('fee_demo_label_en', '', [turn(0, 'fee?', 'The renewal fee is 2700 dirhams, a demo value.')])).toHaveLength(1) // find_service missing
+    // the lean agent answers a fee from its demo-data knowledge base, so no find_service call is required any more
+    expect(failures('fee_demo_label_en', '', [turn(0, 'fee?', 'The renewal fee is 2700 dirhams, a demo value.')])).toEqual([])
+    // spoken numbers are words, in both languages
+    expect(failures('fee_demo_label_ar', '', [turn(0, 'x', 'أهلاً بك، تبلغ رسوم تجديد تأشيرة العمل للموظف ألفين وثمانمئة درهم إماراتي. يرجى العلم أن هذه الرسوم هي قيمة تجريبية وليست رقماً رسمياً.')])).toEqual([])
+    expect(failures('fee_demo_label_en', '', [turn(0, 'x', 'The fee is two thousand eight hundred dirhams, which is a demonstration value.')])).toEqual([])
+    expect(failures('fee_demo_label_en', '', [turn(0, 'x', 'The fee is two thousand eight hundred dirhams.')]).length).toBeGreaterThan(0) // still needs the demo wording
+    expect(failures('drone_permit_ar', '', [turn(0, 'x', '[warmly] لا تتوفر لدي هذه المعلومات ولا أرغب في التخمين. هل تود أن أحولك إلى أحد موظفي فريق واحة دبي للسيليكون لمساعدتك؟')])).toEqual([])
     const ar = turn(0, 'x', 'الرسوم 2700 درهم والمدة 4 أيام. يرجى العلم أن هذه الرسوم والمدة قيم تجريبية.', [['find_service']])
     expect(failures('fee_demo_label_ar', '', [ar])).toEqual([])
   })
@@ -158,11 +164,11 @@ describe('checks: an ideal agent passes, a bad one fails', () => {
     expect(failures('language_switch', '', [t1, turn(1, 'x', 'It takes one day.')]).map((f) => f.name)).toContain('replies in Arabic')
   })
   it('booking needs a read-back and a yes', () => {
-    const date = dateFor('thursday')
+    const date = dateFor('tuesday') // the scenario books on a Tuesday (Thursday 10:30 was already taken in the shared calendar)
     const ok = [
       turn(0, 'a', 'Which day suits you?', [['find_service']]),
       turn(1, 'b', 'I have 10:30, 11:00 and 11:30.', [['list_slots']]),
-      turn(2, 'c', 'So, Ahmed Khan, visa renewal, Thursday at 10:30 AM. Shall I book it?'),
+      turn(2, 'c', 'So, Ahmed Khan, visa renewal, Tuesday at 10:30 AM. Shall I book it?'),
       turn(3, 'd', 'Booked. Your reference is 1 0 0 1.', [['book_appointment', { service_id: 'visa_renewal', time: '10:30', date }]])
     ]
     expect(failures('booking_needs_a_yes', '', ok)).toEqual([])

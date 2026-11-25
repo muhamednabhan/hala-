@@ -6,7 +6,7 @@ import {
 } from '@hala/core'
 
 /** Bump when the bridge protocol or script changes. The page shows it next to what the robot reports. */
-export const BRIDGE_VERSION = '1.0.0'
+export const BRIDGE_VERSION = '1.1.1'
 /** The bridge calls /api/robot/sync this often. Offline means we missed about three in a row. */
 export const SYNC_SECS = 2
 export const ONLINE_WINDOW_SECS = 10

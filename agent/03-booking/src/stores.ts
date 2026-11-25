@@ -51,6 +51,10 @@ export function createStores(opts: { file?: string } = {}): Stores & { reset: ()
     },
     history: async (conversationId) =>
       structuredClone(conversationId ? state.events.filter((e) => e.conversationId === conversationId) : state.events),
+    annotate: async (conversationId, scores) => {
+      for (const e of state.events) if (e.conversationId === conversationId && e.averageSentiment === undefined) Object.assign(e, scores)
+      save()
+    },
     subscribe(fn, conversationId) {
       const entry = { fn, conversationId }
       listeners.add(entry)

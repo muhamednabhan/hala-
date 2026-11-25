@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TOOL_SPECS } from '@hala/tools-api'
+import { LINK_TOOL_SPECS } from '@hala/phone'
 import { buildAgentConfig, ensureToolSecret, isPublicHttps, readHalaEnv, redact, setHalaVar, syncAgent } from '../src'
 
 const opts = { publicBaseUrl: 'https://hala.example.com/', toolSecret: 'sekret-123' }
@@ -25,7 +26,8 @@ describe('agent config', () => {
   })
   it('exposes one webhook tool per spec, pointing at our API with the secret header', () => {
     const tools = cc.agent.prompt.tools as any[]
-    expect(tools.map((t) => t.name).sort()).toEqual(TOOL_SPECS.map((s) => s.name).sort())
+    // the shared tools, plus the two QR phone-link tools that web and robot get
+    expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_SPECS, ...LINK_TOOL_SPECS].map((s) => s.name).sort())
     for (const t of tools) {
       expect(t.type).toBe('webhook')
       expect(t.apiSchema.url).toBe(`https://hala.example.com/api/tools/${t.name}`)
@@ -48,7 +50,7 @@ describe('agent config', () => {
   it('keeps the agent private and judges every call on the rules that matter', () => {
     expect(config.platformSettings.auth.enableAuth).toBe(true)
     expect(config.platformSettings.evaluation.criteria.map((c) => c.id)).toEqual(
-      expect.arrayContaining(['ai_disclosure', 'no_invention', 'demo_labelled', 'language_followed', 'handover_correct'])
+      expect.arrayContaining(['ai_disclosure', 'no_invention', 'demo_labelled', 'language_followed', 'handover_correct', 'no_wasted_handover', 'dialect_mirrored'])
     )
   })
   it('is cool and grounded: low temperature, Dubai timezone', () => {
@@ -68,7 +70,7 @@ describe('agent config', () => {
   it('leaves the web and robot agents untouched by the phone feature', () => {
     for (const channel of ['web', 'robot'] as const) {
       const c = buildAgentConfig({ ...opts, channel })
-      expect((c.conversationConfig.agent.prompt.tools as any[]).map((t) => t.name).sort()).toEqual(TOOL_SPECS.map((s) => s.name).sort())
+      expect((c.conversationConfig.agent.prompt.tools as any[]).map((t) => t.name).sort()).toEqual([...TOOL_SPECS, ...LINK_TOOL_SPECS].map((s) => s.name).sort())
       expect(c.conversationConfig.agent.prompt.prompt).not.toMatch(/caller_number/)
       expect((c.conversationConfig.agent as any).dynamicVariables).toBeUndefined()
     }
@@ -105,13 +107,38 @@ describe('agent config', () => {
     expect(names).toContain('lookup_contact_by_code')
     expect(names).not.toContain('send_text_message')
   })
-  it('the robot agent only differs in audio format and name', () => {
+  it('the robot agent only differs in audio format, name and the voice (model and tags)', () => {
+    // The prompt, tools and everything else must match the web agent.
     const robot = buildAgentConfig({ ...opts, channel: 'robot' })
     expect(robot.name).toBe('HALA Concierge (robot)')
     expect((robot.conversationConfig.tts as any).agentOutputAudioFormat).toBe('pcm_16000')
     expect((robot.conversationConfig.asr as any).userInputAudioFormat).toBe('pcm_16000')
     expect((config.conversationConfig.tts as any).agentOutputAudioFormat).toBeUndefined()
     expect(robot.conversationConfig.agent.prompt.prompt).toBe(cc.agent.prompt.prompt)
+  })
+  it('the robot keeps the voice chosen in the dashboard (v4 turbo, expressive, its own tags) and can still opt out to flash', () => {
+    const robot = buildAgentConfig({ ...opts, channel: 'robot' })
+    expect(robot.conversationConfig.tts.modelId).toBe('eleven_v4_turbo')
+    expect((robot.conversationConfig.tts as any).expressiveMode).toBe(true)
+    expect((robot.conversationConfig.tts as any).suggestedAudioTags.map((t: any) => t.tag)).toEqual(
+      ['[empathetically]', '[warmly]', '[laughing]', '[chuckles]', '[enthusiastically]', '[excitedly]', '[sighs]']
+    )
+    expect(robot.conversationConfig.agent.prompt.prompt).toContain('Expressive voice')
+    const flash = buildAgentConfig({ ...opts, channel: 'robot', voiceModel: 'flash' })
+    expect(flash.conversationConfig.tts.modelId).toBe('eleven_flash_v2_5')
+    expect((flash.conversationConfig.tts as any).expressiveMode).toBeUndefined()
+    expect(flash.conversationConfig.agent.prompt.prompt).not.toContain('Expressive voice') // a flash voice would read a tag out loud
+    expect(cc.agent.prompt.prompt).toContain('Expressive voice')
+  })
+  it('web and robot get the QR link tools, the phone agent does not (it already knows the number)', () => {
+    const names = (c: ReturnType<typeof buildAgentConfig>) => (c.conversationConfig.agent.prompt.tools as any[]).map((t) => t.name)
+    for (const channel of ['web', 'robot'] as const) {
+      expect(names(buildAgentConfig({ ...opts, channel }))).toEqual(expect.arrayContaining(['request_phone_link', 'get_linked_phone']))
+      expect(buildAgentConfig({ ...opts, channel }).conversationConfig.agent.prompt.prompt).toContain('request_phone_link')
+    }
+    const phone = buildAgentConfig({ ...opts, channel: 'phone' })
+    expect(names(phone)).not.toContain('request_phone_link')
+    expect(phone.conversationConfig.agent.prompt.prompt).not.toContain('request_phone_link')
   })
   it('never leaks the secret when redacted', () => {
     expect(JSON.stringify(redact(config, opts.toolSecret))).not.toContain('sekret-123')
